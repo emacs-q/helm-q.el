@@ -1,3 +1,5 @@
+;; credit: Evgeny Panfilov https://github.com/jerry40
+
 (require 'helm)
 (require 'q-mode)
 
