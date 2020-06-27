@@ -1,0 +1,53 @@
+[
+   {
+      "address":"host.domain.com:5000",
+      "env":"prod",
+      "region":"nam",
+      "service":"TAQ.HDB",
+      "tablescolumns":{
+         "trade":[
+            "price",
+            "size"
+         ],
+         "quote":[
+            "bid",
+            "ask",
+            "bsize",
+            "asize"
+         ]
+      },
+      "functions":{
+         "upd":"{sum 1 2}",
+         "endofday":"{avg 3 4}"
+      },
+      "variables":[
+         "foo",
+         "bar"
+      ]
+   },
+   {
+      "address":"host.domain.co.uk:5001",
+      "env":"dev",
+      "region":"emea",
+      "service":"ANALYTICS",
+      "tablescolumns":{
+         "hlcv":[
+            "high",
+            "low",
+            "close",
+            "volume"
+         ],
+         "fundamentals":[
+            "sales",
+            "earnings"
+         ]
+      },
+      "functions":{
+         "vwap":"{1 2 wavg 3 4}"
+      },
+      "variables":[
+         "bar",
+         "baz"
+      ]
+   }
+]

@@ -1,0 +1,13 @@
+* User story
+As an Emacs and kdb/q user with potentially hundreds of kdb/q process instances running on remote servers, I want to connect (see qcon in q-mode.el) to some of them without having to remember/type each time their address/port/username/password. I want to be able to search&select the instance based on other metadata, such as environment, region, service name, or tables (and their columns), functions and variables defined on the kdb/q process instance.
+For example, if I have instances as shown in [[file:instances-meta.json][instances-meta.json]], and I type "vwap" as search pattern in the Helm-like interface in Emacs, I will be presented with the instance having service name "ANALYTICS" as selection candidate. If I select that candidate, a qcon buffer connected to that instance will open (see q-mode.el).
+
+* Milestones
+1. Basic functionality, search simple host:port static file (done)
+2. Search by environment, region, service, tables, columns, functions, variables (interim mock provided in [[file:instances-meta.json][instances-meta.json]] )
+3. Metadata provided via async messaging with discovery service, not via the static file
+4. Username, password storage
+5. =q-send-string= from =Q-Script= buffer to the selected instance after marking it as =q-active-buffer=
+
+* Reuse
+Reuse/gain inspiration from existing Emacs packages as much as you can, if applicable. For example, helm-org-rifle.el, ivy (instead of Helm, if you think it's better), TRAMP, docker-tramp.el,  ...
