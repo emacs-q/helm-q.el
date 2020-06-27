@@ -1,5 +1,7 @@
 # Manage remote q sessions with Helm and q-mode
 
+[![Join the chat at https://gitter.im/helm-q/community](https://badges.gitter.im/helm-q/community.svg)](https://gitter.im/helm-q/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 1. In `~/.helm-q/`, place one or several files with connection details of already running q instances, e.g.:
 ```
 host:port <tab> description
