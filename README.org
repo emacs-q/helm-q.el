@@ -1,0 +1,23 @@
+* Manage remote q sessions with Helm and q-mode
+
+** Prerequisites
+- https://code.kx.com/q/learn/install/
+- https://github.com/KxSystems/kdb/blob/master/l64/qcon
+
+** How to use
+1. In `~/.helm-q/`, place one or several files with connection details of already running q instances, e.g.:
+
+#+BEGIN_SRC
+host:port <tab> description
+#+END_SRC
+
+2. =M-x eval-buffer= on helm-q.el
+3. =M-x helm-q=
+4. start typing any detail of the instance you want to connect to and let [[https://github.com/emacs-helm/helm][Helm do its fuzzy matchgic]]
+5. =RET= on the selection will [[https://github.com/psaris/q-mode][run qcon program]] with the selected address
+6. you can =M-x helm-q= again to connect to another q instance in its own buffer, rinse & repeat
+7. enjoy your multiple remote q sessions
+
+***  Demo
+
+[[demo.gif]]
