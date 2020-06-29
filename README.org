@@ -1,3 +1,5 @@
+[[https://gitter.im/helm-q/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge][https://badges.gitter.im/helm-q/community.svg]]
+
 * Manage remote q sessions with Helm and q-mode
 
 ** Prerequisites
