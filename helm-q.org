@@ -16,7 +16,7 @@
   - [[#custom-variables][custom variables]]
 - [[#implementation][implementation]]
   - [[#helm-q-buffer-class][helm-q buffer class]]
-  - [[#how-to-display-an-q-instance-in-helm-buffer][how to display an q instance in helm buffer]]
+  - [[#how-to-display-a-q-instance-in-helm-buffer][how to display a q instance in helm buffer]]
   - [[#setup-instance-list][setup instance list]]
   - [[#initialize-helm-q-source][initialize helm-q-source]]
   - [[#get-one-instance-by-its-candidate-display-string][get one instance by its candidate display string]]
@@ -62,7 +62,7 @@ https://github.com/emacs-helm/helm/wiki/Developing
    (nohighlight :initform t)
    ))
 #+END_SRC
-** how to display an q instance in helm buffer
+** how to display a q instance in helm buffer
 #+BEGIN_SRC elisp
 (defun helm-q-instance-display-string (instance)
   "Argument INSTANCE: one instance."
