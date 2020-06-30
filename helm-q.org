@@ -14,6 +14,7 @@
   - [[#how-to-develop-with-helm][how to develop with helm]]
   - [[#load-dependencies][load dependencies]]
   - [[#custom-variables][custom variables]]
+- [[#usage][Usage]]
 - [[#implementation][implementation]]
   - [[#helm-q-buffer-class][helm-q buffer class]]
   - [[#how-to-display-a-q-instance-in-helm-buffer][how to display a q instance in helm buffer]]
@@ -43,6 +44,10 @@ https://github.com/emacs-helm/helm/wiki/Developing
   :group 'helm-q
   :type 'string)
 #+END_SRC
+* Usage
+1. put some json files with the same format as it is in [[./instances-meta.json]] to directory =~/.helm-q=.
+2. In Emacs, load ~helm-q.el~ by invoking command ~load-file~.
+3. Execute command ~helm-q~.
 * implementation
 ** helm-q buffer class
 #+BEGIN_SRC elisp
