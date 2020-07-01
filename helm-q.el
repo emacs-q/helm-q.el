@@ -44,14 +44,18 @@
 
 (defun helm-q-instance-display-string (instance)
   "Argument INSTANCE: one instance."
-  (format "%s\t%s"
-          (cdr (assoc 'address instance))
-          (cdr (assoc 'service instance))))
+  (concat (format "%s" (cdr (assoc 'address instance)))
+          helm-buffers-column-separator
+          (format "%s" (cdr (assoc 'service instance)))
+          helm-buffers-column-separator
+          (format "%s" (cdr (assoc 'env instance)))
+          helm-buffers-column-separator
+          (format "%s" (cdr (assoc 'region instance)))))
 
 (defun helm-q-instance-list ()
   "Load source from json files in a directory."
   (require 'json)
-  ;; a list whoise members are `(DISPLAY . REAL)' pairs.
+  ;; a list whose members are `(DISPLAY . REAL)' pairs.
   (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
         append (cl-loop for instance across (json-read-file file)
                      collect (cons (helm-q-instance-display-string instance) instance))))
