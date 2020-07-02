@@ -71,8 +71,8 @@ Argument INSTANCES: the instance list."
         (context-matched-columns (helm-q-context-matched-columns instance)))
     (propertize 
      (if (null context-matched-columns)
-       first-row
-       (concat first-row "\n"
+       (propertize first-row 'face 'bold)
+       (concat (propertize first-row 'face 'bold) "\n"
                (s-join helm-buffers-column-separator
                        (cons helm-buffers-column-separator
                              context-matched-columns))))
@@ -150,8 +150,9 @@ Argument SOURCE: the source."
 (defun helm-q ()
   "Select data source in helm."
   (interactive)
-  (helm :sources (helm-make-source "helm-q" 'helm-q-source)
-        :buffer "*helm q*"))
+  (let ((helm-candidate-separator " "))
+    (helm :sources (helm-make-source "helm-q" 'helm-q-source)
+          :buffer "*helm q*")))
 
 
 (provide 'helm-q)
