@@ -33,32 +33,50 @@
     :custom function
     :documentation
     "  A function with no arguments to create instance list.")
+   (candidate-columns
+    :initform '(address service env region)
+    :documentation "The columns used to display each candidate.")
+   (candidate-columns-width-hash
+    :initform (make-hash-table :test 'equal)
+    :documentation "The width of each column in candidate-columns, key is the column symbol and value is the width of it.")
    (init :initform 'helm-q-source-list--init)
    (multimatch :initform nil)
    (match :initform 'helm-q-source-match-function)
    (action :initform 'helm-q-source-list-persistent-action)
    (migemo :initform 'nomultimatch)
    (volatile :initform t)
-   (nohighlight :initform t)
+   (nohighlight :initform nil)
    ))
+
+(defun helm-q-calculate-columns-width (instances)
+  "Calculate columns width.
+Argument INSTANCES: the instance list."
+  (cl-loop with width-hash = (helm-attr 'candidate-columns-width-hash)
+           for column in (helm-attr 'candidate-columns)
+           do (cl-loop for instance in instances
+                       for width = (length (cdr (assoc column instance)))
+                       if (or (null (gethash column width-hash))
+                              (> width (gethash column width-hash)))
+                       do (setf (gethash column width-hash) width))))
 
 (defun helm-q-instance-display-string (instance)
   "Argument INSTANCE: one instance."
-  (concat (format "%s" (cdr (assoc 'address instance)))
-          helm-buffers-column-separator
-          (format "%s" (cdr (assoc 'service instance)))
-          helm-buffers-column-separator
-          (format "%s" (cdr (assoc 'env instance)))
-          helm-buffers-column-separator
-          (format "%s" (cdr (assoc 'region instance)))))
+  (mapconcat 'identity
+             (cl-loop for column in (helm-attr 'candidate-columns)
+                      collect (helm-substring-by-width (format "%s" (cdr (assoc column instance)))
+                                                       (gethash column (helm-attr 'candidate-columns-width-hash))))
+             helm-buffers-column-separator))
 
 (defun helm-q-instance-list ()
   "Load source from json files in a directory."
   (require 'json)
-  ;; a list whose members are `(DISPLAY . REAL)' pairs.
-  (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
-        append (cl-loop for instance across (json-read-file file)
-                     collect (cons (helm-q-instance-display-string instance) instance))))
+  (let ((instances (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
+                            append (cl-loop for instance across (json-read-file file)
+                                            collect instance))))
+    (helm-q-calculate-columns-width instances)
+    ;; a list whose members are `(DISPLAY . REAL)' pairs.
+    (cl-loop for instance in instances
+             collect (cons (helm-q-instance-display-string instance) instance))))
 
 (defun helm-q-source-list--init ()
   "Initialize helm-q-source."
