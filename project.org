@@ -12,5 +12,9 @@ For example, if I have instances as shown in [[file:instances-meta.json][instanc
 ** 2. Search by environment, region, service, tables, columns, functions, variables
 Given the metadata database [[file:instances-meta.json][instances-meta.json]], display these results as selection candidates in the Helm buffer:  [[https://docs.google.com/spreadsheets/d/14f2LBU2r__dJkpx5hZBJyuRy94wvKNatSBkw-r8CJhQ/edit?usp=sharing][see the mockup]]
 
+** 3. Metadata provided by external discovery service, which updates the JSON file on disk
+Emacs will monitor file change on specified JSON file. The external discovery service will update that file in irregular basis and Emacs will know it:
+https://www.gnu.org/software/emacs/manual/html_node/elisp/File-Notifications.html
+
 * Reuse
 Reuse/gain inspiration from existing Emacs packages as much as you can, if applicable. For example, helm-org-rifle.el, ivy (instead of Helm, if you think it's better), TRAMP, docker-tramp.el,  ...
