@@ -22,6 +22,7 @@
   - [[#initialize-helm-q-source][initialize helm-q-source]]
   - [[#get-one-instance-by-its-candidate-display-string][get one instance by its candidate display string]]
   - [[#match-funtion][match funtion]]
+  - [[#helm-q-source-filtered-candidate-transformer][helm-q-source-filtered-candidate-transformer]]
   - [[#default-persistent-action-to-connect-with-q-mode][default persistent action to connect with q-mode]]
   - [[#the-interactive-command][The interactive command]]
 - [[#release-current-library][Release current library]]
@@ -31,6 +32,7 @@
 https://github.com/emacs-helm/helm/wiki/Developing
 ** load dependencies 
 #+BEGIN_SRC elisp
+(require 's)
 (require 'helm)
 (require 'q-mode)
 #+END_SRC
@@ -66,8 +68,10 @@ https://github.com/emacs-helm/helm/wiki/Developing
     :documentation "The width of each column in candidate-columns, key is the column symbol and value is the width of it.")
    (init :initform 'helm-q-source-list--init)
    (multimatch :initform nil)
+   (multiline :initform t)
    (match :initform 'helm-q-source-match-function)
    (action :initform 'helm-q-source-list-persistent-action)
+   (filtered-candidate-transformer :initform  'helm-q-source-filtered-candidate-transformer)
    (migemo :initform 'nomultimatch)
    (volatile :initform t)
    (nohighlight :initform nil)
@@ -89,14 +93,23 @@ Argument INSTANCES: the instance list."
                        do (setf (gethash column width-hash) width))))
 #+END_SRC
 
+Now we can build a display string with fixed size.
 #+BEGIN_SRC elisp
 (defun helm-q-instance-display-string (instance)
   "Argument INSTANCE: one instance."
-  (mapconcat 'identity
-             (cl-loop for column in (helm-attr 'candidate-columns)
-                      collect (helm-substring-by-width (format "%s" (cdr (assoc column instance)))
-                                                       (gethash column (helm-attr 'candidate-columns-width-hash))))
-             helm-buffers-column-separator))
+  (let ((first-row (s-join helm-buffers-column-separator
+                           (cl-loop for column in (helm-attr 'candidate-columns)
+                                    collect (helm-substring-by-width (format "%s" (cdr (assoc column instance)))
+                                                                     (gethash column (helm-attr 'candidate-columns-width-hash))))))
+        (context-matched-columns (helm-q-context-matched-columns instance)))
+    (propertize 
+     (if (null context-matched-columns)
+       first-row
+       (concat first-row "\n"
+               (s-join helm-buffers-column-separator
+                       (cons helm-buffers-column-separator
+                             context-matched-columns))))
+     'instance instance)))
 #+END_SRC
 ** setup instance list
 #+BEGIN_SRC elisp
@@ -120,12 +133,40 @@ Argument INSTANCES: the instance list."
 ** get one instance by its candidate display string
 #+BEGIN_SRC elisp
 (defun helm-q-get-instance-by-display (display-str)
-  (cl-loop with candidates = (helm-attr 'candidates (helm-get-current-source))
+  "Get an instance by its display string.
+Argument DISPLAY-STR: the display string."
+  (cl-loop with candidates = (helm-attr 'candidates)
            for candidate in candidates
            when (string= display-str (car candidate))
            return (cdr candidate)))
 #+END_SRC
 ** match funtion
+When match, we will test some columns that are not in ~candidate-columns~, which will not display by default.
+For them, if it can match, we will return them so can be added as additional lines for display.
+#+BEGIN_SRC elisp
+(defun helm-q-context-matched-columns (instance)
+  "Return a list of string for matched columns.
+Argument INSTANCE: one instance."
+  (unless (s-blank? helm-pattern)
+    (append 
+     (cl-loop for table-columns in (cdr (assoc 'tablescolumns instance))
+              append (append (let ((tab-name (format "%s" (car table-columns))))
+                               (if (helm-buffer--match-pattern helm-pattern tab-name nil)
+                                 (list (format "Table:'%s'" tab-name))))
+                             (cl-loop for column-name across (cdr table-columns)
+                                      if (helm-buffer--match-pattern helm-pattern column-name nil)
+                                      collect (format "Column:'%s'" column-name))))
+     (cl-loop for (function) in (cdr (assoc 'functions instance))
+              for function-name = (format "%s" function)
+              if (helm-buffer--match-pattern helm-pattern function-name nil)
+              collect (format "Function:'%s'" function-name))
+
+     (cl-loop for variable-name across (cdr (assoc 'variables instance))
+              if (helm-buffer--match-pattern helm-pattern variable-name nil)
+              collect (format "Var:'%s'" variable-name)))))
+#+END_SRC
+
+The helm match function will combine candidate columns and these additional columns.
 #+BEGIN_SRC elisp
 (defun helm-q-source-match-function (candidate)
   "Default function to match buffers.
@@ -133,32 +174,28 @@ Argument CANDIDATE: one helm candidate."
   (let ((instance (helm-q-get-instance-by-display candidate))
         (helm-buffers-fuzzy-matching t))
     (or 
-      (cl-loop for slot in '(env region service address)
+      (cl-loop for slot in (helm-attr 'candidate-columns)
                for slot-value = (cdr (assoc slot instance))
                thereis (helm-buffer--match-pattern helm-pattern slot-value nil))
-
-      (cl-loop for table-columns in (cdr (assoc 'tablescolumns instance))
-               thereis (or (let ((tab-name (format "%s" (car table-columns))))
-                             (helm-buffer--match-pattern helm-pattern tab-name nil))
-                           (cl-loop for column-name across (cdr table-columns)
-                                    thereis (helm-buffer--match-pattern helm-pattern column-name nil))))
-
-      (cl-loop for (function) in (cdr (assoc 'functions instance))
-               for function-name = (format "%s" function)
-               thereis (helm-buffer--match-pattern helm-pattern function-name nil))
-
-      (cl-loop for variable-name across (cdr (assoc 'variables instance))
-               thereis (helm-buffer--match-pattern helm-pattern variable-name nil))
-      
-      )))
+      (helm-q-context-matched-columns instance))))
 #+END_SRC
+** helm-q-source-filtered-candidate-transformer
+#+BEGIN_SRC elisp
+(defun helm-q-source-filtered-candidate-transformer (candidates source)
+  "Filter candidates by context match.
+Argument CANDIDATES: the candidate list.
+Argument SOURCE: the source."
+  (cl-loop for (nil . instance) in candidates
+           collect (cons (helm-q-instance-display-string instance) instance)))
+#+END_SRC
+
 ** default persistent action to connect with q-mode 
 #+BEGIN_SRC elisp
 (defun helm-q-source-list-persistent-action (candidate)
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
          (address (cdr (assoc 'address instance))))
-    (message "connect to q %s" address)
+    (message "connect to q: %s" address)
     (q-qcon address)))
 #+END_SRC
 ** The interactive command
@@ -179,7 +216,7 @@ the following code should execute.
  :header ";;; helm-q.el --- A library to manage remote q sessions with Helm and q-mode  -*- lexical-binding: t; -*-
 
 ;; URL: https://github.com/emacs-q/helm-q.el
-;; Package-Requires: ((cl-lib \"0.6\") (emacs \"26.1\"))
+;; Package-Requires: ((emacs \"26.1\") (cl-lib \"0.6\") (helm \"1.9.4\") (s \"1.10.0\"))
 
 ;;; Commentary:
 

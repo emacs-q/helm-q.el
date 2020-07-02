@@ -1,7 +1,7 @@
 ;;; helm-q.el --- A library to manage remote q sessions with Helm and q-mode  -*- lexical-binding: t; -*-
 
 ;; URL: https://github.com/emacs-q/helm-q.el
-;; Package-Requires: ((cl-lib "0.6") (emacs "26.1"))
+;; Package-Requires: ((emacs "26.1") (cl-lib "0.6") (helm "1.9.4") (s "1.10.0"))
 
 ;;; Commentary:
 
@@ -15,6 +15,7 @@
 ;; you should read file `helm-q.org' to find out the usage and implementation detail of this source file.
 
 
+(require 's)
 (require 'helm)
 (require 'q-mode)
 
@@ -41,8 +42,10 @@
     :documentation "The width of each column in candidate-columns, key is the column symbol and value is the width of it.")
    (init :initform 'helm-q-source-list--init)
    (multimatch :initform nil)
+   (multiline :initform t)
    (match :initform 'helm-q-source-match-function)
    (action :initform 'helm-q-source-list-persistent-action)
+   (filtered-candidate-transformer :initform  'helm-q-source-filtered-candidate-transformer)
    (migemo :initform 'nomultimatch)
    (volatile :initform t)
    (nohighlight :initform nil)
@@ -61,11 +64,19 @@ Argument INSTANCES: the instance list."
 
 (defun helm-q-instance-display-string (instance)
   "Argument INSTANCE: one instance."
-  (mapconcat 'identity
-             (cl-loop for column in (helm-attr 'candidate-columns)
-                      collect (helm-substring-by-width (format "%s" (cdr (assoc column instance)))
-                                                       (gethash column (helm-attr 'candidate-columns-width-hash))))
-             helm-buffers-column-separator))
+  (let ((first-row (s-join helm-buffers-column-separator
+                           (cl-loop for column in (helm-attr 'candidate-columns)
+                                    collect (helm-substring-by-width (format "%s" (cdr (assoc column instance)))
+                                                                     (gethash column (helm-attr 'candidate-columns-width-hash))))))
+        (context-matched-columns (helm-q-context-matched-columns instance)))
+    (propertize 
+     (if (null context-matched-columns)
+       first-row
+       (concat first-row "\n"
+               (s-join helm-buffers-column-separator
+                       (cons helm-buffers-column-separator
+                             context-matched-columns))))
+     'instance instance)))
 
 (defun helm-q-instance-list ()
   "Load source from json files in a directory."
@@ -83,10 +94,33 @@ Argument INSTANCES: the instance list."
   (helm-attrset 'candidates (funcall (helm-attr 'instance-list))))
 
 (defun helm-q-get-instance-by-display (display-str)
-  (cl-loop with candidates = (helm-attr 'candidates (helm-get-current-source))
+  "Get an instance by its display string.
+Argument DISPLAY-STR: the display string."
+  (cl-loop with candidates = (helm-attr 'candidates)
            for candidate in candidates
            when (string= display-str (car candidate))
            return (cdr candidate)))
+
+(defun helm-q-context-matched-columns (instance)
+  "Return a list of string for matched columns.
+Argument INSTANCE: one instance."
+  (unless (s-blank? helm-pattern)
+    (append 
+     (cl-loop for table-columns in (cdr (assoc 'tablescolumns instance))
+              append (append (let ((tab-name (format "%s" (car table-columns))))
+                               (if (helm-buffer--match-pattern helm-pattern tab-name nil)
+                                 (list (format "Table:'%s'" tab-name))))
+                             (cl-loop for column-name across (cdr table-columns)
+                                      if (helm-buffer--match-pattern helm-pattern column-name nil)
+                                      collect (format "Column:'%s'" column-name))))
+     (cl-loop for (function) in (cdr (assoc 'functions instance))
+              for function-name = (format "%s" function)
+              if (helm-buffer--match-pattern helm-pattern function-name nil)
+              collect (format "Function:'%s'" function-name))
+
+     (cl-loop for variable-name across (cdr (assoc 'variables instance))
+              if (helm-buffer--match-pattern helm-pattern variable-name nil)
+              collect (format "Var:'%s'" variable-name)))))
 
 (defun helm-q-source-match-function (candidate)
   "Default function to match buffers.
@@ -94,30 +128,23 @@ Argument CANDIDATE: one helm candidate."
   (let ((instance (helm-q-get-instance-by-display candidate))
         (helm-buffers-fuzzy-matching t))
     (or 
-      (cl-loop for slot in '(env region service address)
+      (cl-loop for slot in (helm-attr 'candidate-columns)
                for slot-value = (cdr (assoc slot instance))
                thereis (helm-buffer--match-pattern helm-pattern slot-value nil))
+      (helm-q-context-matched-columns instance))))
 
-      (cl-loop for table-columns in (cdr (assoc 'tablescolumns instance))
-               thereis (or (let ((tab-name (format "%s" (car table-columns))))
-                             (helm-buffer--match-pattern helm-pattern tab-name nil))
-                           (cl-loop for column-name across (cdr table-columns)
-                                    thereis (helm-buffer--match-pattern helm-pattern column-name nil))))
-
-      (cl-loop for (function) in (cdr (assoc 'functions instance))
-               for function-name = (format "%s" function)
-               thereis (helm-buffer--match-pattern helm-pattern function-name nil))
-
-      (cl-loop for variable-name across (cdr (assoc 'variables instance))
-               thereis (helm-buffer--match-pattern helm-pattern variable-name nil))
-      
-      )))
+(defun helm-q-source-filtered-candidate-transformer (candidates source)
+  "Filter candidates by context match.
+Argument CANDIDATES: the candidate list.
+Argument SOURCE: the source."
+  (cl-loop for (nil . instance) in candidates
+           collect (cons (helm-q-instance-display-string instance) instance)))
 
 (defun helm-q-source-list-persistent-action (candidate)
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
          (address (cdr (assoc 'address instance))))
-    (message "connect to q %s" address)
+    (message "connect to q: %s" address)
     (q-qcon address)))
 
 (defun helm-q ()
