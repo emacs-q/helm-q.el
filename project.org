@@ -16,5 +16,42 @@ Given the metadata database [[file:instances-meta.json][instances-meta.json]], d
 Emacs will monitor if the =instances-meta.json= changed on disk. The external discovery service will update that file in irregular basis and Emacs will know it:
 https://www.gnu.org/software/emacs/manual/html_node/elisp/File-Notifications.html
 
+** 4. Username, password storage
+If the selected instance requires password authentication, =helm-q= may use stored username and password instead of requiring to manually type the password every time, like in plain-vanilla =C-u M-x q-qcon=.
+
+- "Authenticating instance" detection - Some instances require password authentication, other don't. =helm-q= is able to tell whether the password is required on the given =host=.
+- Multi-username support -  It is possible to store multiple =user= entries for the same =host= . Useful in the workflow when need to alternate between differently permissioned roles.
+
+- Password storage ::
+Store the passwords for different =host/user= combinations in storage method specified in =(defcustom helm-q-password-storage "pass" ...)=. Why =host/user= combinations? To be able to log in to the same =host= under different roles.
+
+Two supported storage methods: 
+
+1. =pass=  https://www.passwordstore.org/ : each password entry is stored under key composed like this =helm-q/{host}/{user}=
+2. [non-essential] =helm-q= native format using gpg encrypted files
+
+- Prompting for new =user= on =C-u M-x helm-q= ::
+if =M-x helm-q= was invoked with =C-u= prefix argument, and after instance was selected from =helm-q= buffer, prompt for new =user= and then for =password= in the minibuffer. Attempt to connect with the supplied =user:password=.
+
+- On selecting the instance in the =helm-q= buffer opened after =M-x helm-q= invocation, check if there is existing entry in the password storage. ::
+- if there is no entry in the password storage for the given instance =host=, attempt to connect without =user:password=. Some =hosts= don't require supplying any =user= or =password= and =qcon= then doesn't need/accept the =user:password= string. 
+- if there is exactly one entry in the password storage for the given instance =host=, attempt to connect with that =user= and =password= .
+- if there are two or more entries in the password storage, display all the their =user= values as candidates in a new helm selection buffer called =helm-q-user=
+
+- Prompting for =user= and =password= in case of unsuccessful passwordless  connection attempt. ::
+ If the passwordless connection attempt fails, prompt for =user= and =password=. After =qcon= successfully connected to the instance with this =user= and =password=, create an entry in the password storage.
+
+- Selecting the existing =user= from a helm selection buffer called =helm-q-user= in case of two or more entries in the password storage for the same =host= ::
+If one of the candidates for the =user= is selected, retrieve that =host/user= entry from the password storage and attempt to connect to that instance with that =user:password= string.
+
+- Saving the new =user= and =password= in case of successful authentication. ::
+After =qcon= successfully connected to the instance with new =user= and =password=, save down the the new entry in the new =host/user= key of the password storage.
+
+- Prompting for new =password= in case of failed authentication. ::
+After =qcon= failed to connect to the instance with =password=, prompt for new =password=.
+
+- Saving the updated =password= in case of successful authentication. ::
+After =qcon= successfully connected to the instance with =password=, overwrite the password entry in the existing =host/user= key of the password storage, if the previously stored entry differed.
+
 * Reuse
 Reuse/gain inspiration from existing Emacs packages as much as you can, if applicable. For example, helm-org-rifle.el, ivy (instead of Helm, if you think it's better), TRAMP, docker-tramp.el,  ...
