@@ -30,6 +30,17 @@ Two supported storage methods:
 1. =pass=  https://www.passwordstore.org/ : each password entry is stored under key composed like this =helm-q/{host}/{user}=
 2. [non-essential] =helm-q= native format using gpg encrypted files
 
+Example of the =host/user= password entries:
+#+BEGIN_SRC
+helm-q
+├── host1.domain.co.uk
+    ├── default
+    ├── admin
+├── 198.158.2.2
+    ├── user1
+    ├── admin
+ #+END_SRC
+
 - Prompting for new =user= on =C-u M-x helm-q= ::
 if =M-x helm-q= was invoked with =C-u= prefix argument, and after instance was selected from =helm-q= buffer, prompt for new =user= and then for =password= in the minibuffer. Attempt to connect with the supplied =user:password=.
 
