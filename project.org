@@ -64,5 +64,33 @@ After =qcon= failed to connect to the instance with =password=, prompt for new =
 - Saving the updated =password= in case of successful authentication. ::
 After =qcon= successfully connected to the instance with =password=, overwrite the password entry in the existing =host/user= key of the password storage, if the previously stored entry differed.
 
+** 5. =q-send-string= from Q-Script buffer to the selected new or existing Q-Shell buffer
+
+In [[https://github.com/psaris/q-mode/blob/master/q-mode.el][q-mode]],  =q-eval-*= sends string (=q-send-string=) from Q-Script buffer to whichever Q-Shell comint buffer that is marked as =q-active-buffer=. This is to be extended with the ability to interactively select which buffer/instance should the string be sent to, skipping the need to manually =q-activate-buffer= each time a different destination is desired.
+
+- Current workflow example ::
+#+BEGIN_EXAMPLE
+SPC b b q-loca* <down> <down> RET
+M-x q-activate-buffer
+SPC <TAB>
+M-x q-eval-line
+#+END_EXAMPLE
+
+- Desired workflow example ::
+#+BEGIN_EXAMPLE
+C-u q-eval-line ANALYT RET
+#+END_EXAMPLE
+
+Extend behavior of =q-eval-*=  so when it's called with prefix argument =C-u=, it brings up a helm buffer and wait for the selection of an instance. This special helm buffer consists of two sections of candidates, just like ~M-x list-buffers~ consists of three sections: =Buffers=, =Recentf= and =Create buffer=. The two sections are:
+
+1. =Buffers=: existing Q-Shell buffer candidates - searchable by buffer name
+2. =Instances=: =helm-q= qcon instance candidates searchable by attributes like tables, columns, functions etc.. 
+
+Note that the candidates can be overlapping, when an instance listed in =Instances= section is an already existing Q-Shell buffer listed in Buffers section. Selecting such an instance should /not/ create a duplicate Q-Shell buffer.
+
+On selection, the selected Q-Shell buffer [[https://github.com/psaris/q-mode/blob/master/q-mode.el#L319][is marked]] as =q-active-buffer= and the string is sent to it (=q-send-string=) as usual.  However, the cursor stays and never leaves the initial Q-Script buffer.
+
+When any of the =q-eval-*= commands are called with /double/ prefix argument =C-u C-u=, invoke =helm-q= with single prefix argument to prompt for =user= and =password=.
+
 * Reuse
 Reuse/gain inspiration from existing Emacs packages as much as you can, if applicable. For example, helm-org-rifle.el, ivy (instead of Helm, if you think it's better), TRAMP, docker-tramp.el,  ...
