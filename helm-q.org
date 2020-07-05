@@ -279,11 +279,12 @@ Argument STORAGE: a valid storage method.
 Argument HOST: a host.
 Argument USER: an user name.")
 
-(cl-defgeneric helm-q-update-pass (storage host user)
+(cl-defgeneric helm-q-update-pass (storage host user &optional password)
   "Update user and pass to local encrypted storage file.
 Argument STORAGE: a valid storage method.
 Argument HOST: the host of an instance.
-Argument USER: the user for the instance.")
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance.")
 #+END_SRC
 *** no password storage
 This case happens when variable ~helm-q-password-storage~ is ~nil~.
@@ -310,11 +311,12 @@ Argument USER:"
 **** update user name and password for an host
 In this case, we should notify user an error message.
 #+BEGIN_SRC elisp
-(cl-defmethod helm-q-update-pass ((storage (eql nil)) host user)
+(cl-defmethod helm-q-update-pass ((storage (eql nil)) host user &optional password)
   "Update user and pass to local pass storage file.
 Argument STORAGE: should be 'pass
 Argument HOST: the host of an instance.
-Argument USER: the user for the instance."
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance."
   (message "You can't save password because this feature is disabled by Emacs lisp variable 'helm-q-password-storage'."))
 #+END_SRC
 
@@ -327,7 +329,7 @@ It will return a cons whose ~car~ is true if it runs successfully, and the ~cdr~
 Argument INFILE: input file for pass process.
 Argument ARGS: additional arguments for pass."
   (with-temp-buffer
-      (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) nil args))
+      (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) t args))
              (result (trim-string (buffer-string))))
         (cons (= 0 exit-code) result))))
 #+END_SRC
@@ -359,12 +361,13 @@ Argument USER:"
 #+END_SRC
 **** update user name and password for an host
 #+BEGIN_SRC elisp
-(cl-defmethod helm-q-update-pass ((storage (eql pass)) host user)
+(cl-defmethod helm-q-update-pass ((storage (eql pass)) host user &optional password)
   "Update user and pass to local pass storage file.
 Argument STORAGE: should be 'pass
 Argument HOST: the host of an instance.
-Argument USER: the user for the instance."
-  (let* ((pass (read-passwd (format "Password for %s@%s: " user host) t))
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance."
+  (let* ((pass (or password (read-passwd (format "Password for %s@%s: " user host) t)))
          (in-file (make-temp-file "helm-q-")))
     ;; when insert a password in pass, it will ask for password, `call-process' will let pass read it from this input file.
     (with-temp-file in-file
@@ -400,11 +403,15 @@ In above condition, we will use a special variable to indicate the switch.
 (defvar helm-q-pass-required-p nil "Switch it on when helm-q was invoked with prefix argument.")
 #+END_SRC
 
+The action routine:
 #+BEGIN_SRC elisp
 (defun helm-q-source-action-qcon (candidate)
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
          (host (cdr (assoc 'address instance)))
+         (server-port (split-string host ":"))
+         (q-qcon-server (car server-port))
+         (q-qcon-port (or (second server-port) q-qcon-port))
          (users (helm-q-pass-users-of-host helm-q-password-storage host))
          (q-qcon-user (if helm-q-pass-required-p
                         (read-string "Please enter an user name: " (car users))
@@ -414,10 +421,10 @@ In above condition, we will use a special variable to indicate the switch.
                           (2 (helm-q-user users)))))
          (q-qcon-password (when q-qcon-user
                             (if helm-q-pass-required-p
-                              (read-passwd (format "Password for %s@%s: " q-qcon-user host))
+                              (read-passwd (format "Password for %s@%s: " q-qcon-user q-qcon-server))
                               (helm-q-get-pass helm-q-password-storage host q-qcon-user)))))
-    (message "connect to q: %s" host)
-    (q-qcon host)))
+    (when (helm-q-test-active-connection host)
+      (q-qcon (q-qcon-default-args)))))
 #+END_SRC
 *** action to show username and password
 #+BEGIN_SRC elisp
@@ -484,7 +491,7 @@ Argument ARG: prefix argument."
 *** requirement
 We will try to send a command after connecting via ~q~ or ~qcon~ in Emacs, and execute different actions based on the test.
 
-The current behaviour of qcon for a command likes this.
+The current behavior of qcon for a command likes this.
 #+begin_src sh
 $ qcon 192.168.0.100:5000 # a normal successful connection without password.
 192.168.0.100:5000>1+1
@@ -517,11 +524,50 @@ So the actions we will do based on a test command are.
   - we will do nothing with it.
 
 We will not do this test in ~comint~ buffer directly because it's an interactive buffer for user.
-Instead, we will create a new process of ~qcon~ and send test commands to it for a test.
+Instead, we will create a new process of ~qcon~ and send test commands to it in a temp buffer.
 #+BEGIN_SRC elisp
-(defun helm-q-test-connection ()
-  "Test connection of qcon."
-  )
+(defun helm-q-test-active-connection (host)
+  "Test connection of qcon, return true if connection is ok.
+Argument HOST: the host of current instance."
+  (message "Test connection...")
+  (let ((in-file (make-temp-file "helm-q-"))
+        (test-message "Test Connection."))
+    ;; prepare test commands in input file.
+    (with-temp-file in-file
+      (insert
+       ;; echo a test message.
+       "\"" test-message "\"" "\n"
+       ;; quit from this process.
+       "\\\\" "\n\n"))
+    (with-temp-buffer
+      (let* ((exit-code (apply 'call-process (expand-file-name q-qcon-program) in-file (current-buffer) t
+                               (list (q-qcon-default-args))))
+             (result (trim-string (buffer-string))))
+        (delete-file in-file); remove temp file after use.
+        (if (/= 0 exit-code)
+          ;; if failed to connect, report the result as error message.
+          (progn (message "connection failed: %s" result)
+                 nil)
+          (if (ignore-errors
+                (goto-char (point-min))
+                ;; The test message should occur in the output.
+                (search-forward test-message nil nil 1))
+            (progn
+              ;; connection is ok, save password for this connection if it is from user input.
+              (when helm-q-pass-required-p
+                (helm-q-update-pass helm-q-password-storage host q-qcon-user q-qcon-password))
+              t)
+            (progn
+              ;; invalid user/pass, ask for a new username and password.
+              (message "connection is not response: %s" result)
+              (if (s-blank? q-qcon-password)
+                (progn
+                  (setf q-qcon-user (read-string "Please enter the user name: " q-qcon-user))
+                  (setf q-qcon-password (read-passwd "Please enter the password: "))
+                  ;; test connection with new username and password.
+                  (let ((helm-q-pass-required-p t)); save the password if it is ok.
+                    (helm-q-test-active-connection host)))
+                nil))))))))
 #+END_SRC
 * Release current library
 And when a new version of [[./helm-q.el]] can release from this file,

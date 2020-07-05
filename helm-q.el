@@ -178,11 +178,12 @@ Argument STORAGE: a valid storage method.
 Argument HOST: a host.
 Argument USER: an user name.")
 
-(cl-defgeneric helm-q-update-pass (storage host user)
+(cl-defgeneric helm-q-update-pass (storage host user &optional password)
   "Update user and pass to local encrypted storage file.
 Argument STORAGE: a valid storage method.
 Argument HOST: the host of an instance.
-Argument USER: the user for the instance.")
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance.")
 
 (cl-defmethod helm-q-pass-users-of-host ((storage (eql nil)) host)
   "Get a list of users by its host.
@@ -197,11 +198,12 @@ Argument HOST:
 Argument USER:"
   nil)
 
-(cl-defmethod helm-q-update-pass ((storage (eql nil)) host user)
+(cl-defmethod helm-q-update-pass ((storage (eql nil)) host user &optional password)
   "Update user and pass to local pass storage file.
 Argument STORAGE: should be 'pass
 Argument HOST: the host of an instance.
-Argument USER: the user for the instance."
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance."
   (message "You can't save password because this feature is disabled by Emacs lisp variable 'helm-q-password-storage'."))
 
 (defun helm-q-run-pass (infile &rest args)
@@ -209,7 +211,7 @@ Argument USER: the user for the instance."
 Argument INFILE: input file for pass process.
 Argument ARGS: additional arguments for pass."
   (with-temp-buffer
-      (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) nil args))
+      (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) t args))
              (result (trim-string (buffer-string))))
         (cons (= 0 exit-code) result))))
 
@@ -235,12 +237,13 @@ Argument USER:"
     (when succ-p
       entry)))
 
-(cl-defmethod helm-q-update-pass ((storage (eql pass)) host user)
+(cl-defmethod helm-q-update-pass ((storage (eql pass)) host user &optional password)
   "Update user and pass to local pass storage file.
 Argument STORAGE: should be 'pass
 Argument HOST: the host of an instance.
-Argument USER: the user for the instance."
-  (let* ((pass (read-passwd (format "Password for %s@%s: " user host) t))
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance."
+  (let* ((pass (or password (read-passwd (format "Password for %s@%s: " user host) t)))
          (in-file (make-temp-file "helm-q-")))
     ;; when insert a password in pass, it will ask for password, `call-process' will let pass read it from this input file.
     (with-temp-file in-file
@@ -270,6 +273,9 @@ Argument USERS: a user list."
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
          (host (cdr (assoc 'address instance)))
+         (server-port (split-string host ":"))
+         (q-qcon-server (car server-port))
+         (q-qcon-port (or (second server-port) q-qcon-port))
          (users (helm-q-pass-users-of-host helm-q-password-storage host))
          (q-qcon-user (if helm-q-pass-required-p
                         (read-string "Please enter an user name: " (car users))
@@ -279,10 +285,10 @@ Argument USERS: a user list."
                           (2 (helm-q-user users)))))
          (q-qcon-password (when q-qcon-user
                             (if helm-q-pass-required-p
-                              (read-passwd (format "Password for %s@%s: " q-qcon-user host))
+                              (read-passwd (format "Password for %s@%s: " q-qcon-user q-qcon-server))
                               (helm-q-get-pass helm-q-password-storage host q-qcon-user)))))
-    (message "connect to q: %s" host)
-    (q-qcon host)))
+    (when (helm-q-test-active-connection host)
+      (q-qcon (q-qcon-default-args)))))
 
 (defun helm-q-source-action-show-password (candidate)
   "Show password for current instance.
@@ -335,9 +341,48 @@ Argument ARG: prefix argument."
     (helm :sources (helm-make-source "helm-q" 'helm-q-source)
           :buffer "*helm q*")))
 
-(defun helm-q-test-connection ()
-  "Test connection of qcon."
-  )
+(defun helm-q-test-active-connection (host)
+  "Test connection of qcon, return true if connection is ok.
+Argument HOST: the host of current instance."
+  (message "Test connection...")
+  (let ((in-file (make-temp-file "helm-q-"))
+        (test-message "Test Connection."))
+    ;; prepare test commands in input file.
+    (with-temp-file in-file
+      (insert
+       ;; echo a test message.
+       "\"" test-message "\"" "\n"
+       ;; quit from this process.
+       "\\\\" "\n\n"))
+    (with-temp-buffer
+      (let* ((exit-code (apply 'call-process (expand-file-name q-qcon-program) in-file (current-buffer) t
+                               (list (q-qcon-default-args))))
+             (result (trim-string (buffer-string))))
+        (delete-file in-file); remove temp file after use.
+        (if (/= 0 exit-code)
+          ;; if failed to connect, report the result as error message.
+          (progn (message "connection failed: %s" result)
+                 nil)
+          (if (ignore-errors
+                (goto-char (point-min))
+                ;; The test message should occur in the output.
+                (search-forward test-message nil nil 1))
+            (progn
+              ;; connection is ok, save password for this connection if it is from user input.
+              (when helm-q-pass-required-p
+                (helm-q-update-pass helm-q-password-storage host q-qcon-user q-qcon-password))
+              t)
+            (progn
+              ;; invalid user/pass, ask for a new username and password.
+              (message "connection is not response: %s" result)
+              (if (s-blank? q-qcon-password)
+                (progn
+                  (setf q-qcon-user (read-string "Please enter the user name: " q-qcon-user))
+                  (setf q-qcon-password (read-passwd "Please enter the password: "))
+                  ;; test connection with new username and password.
+                  (let ((helm-q-pass-required-p t)); save the password if it is ok.
+                    (helm-q-test-active-connection host)))
+                nil))))))))
 
 
 (provide 'helm-q)
