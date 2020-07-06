@@ -258,7 +258,7 @@ Argument PASSWORD: the optional password for the instance."
 (defun helm-q-user (users)
   "Select a user in Helm.
 Argument USERS: a user list."
-  (let ((prompt "Please select an user to show its password.")
+  (let ((prompt "Please select an user:")
         (user "")
         (helm-source
          `((name . "helm-q-user-list")
@@ -278,7 +278,7 @@ Argument USERS: a user list."
          (q-qcon-port (or (second server-port) q-qcon-port))
          (users (helm-q-pass-users-of-host helm-q-password-storage host))
          (q-qcon-user (if helm-q-pass-required-p
-                        (read-string "Please enter an user name: " (car users))
+                        (read-string "Please enter a new user name: " (car users))
                         (case (length users)
                           (0 "")
                           (1 (car users))
@@ -375,14 +375,20 @@ Argument HOST: the host of current instance."
             (progn
               ;; invalid user/pass, ask for a new username and password.
               (message "connection is not response: %s" result)
-              (if (s-blank? q-qcon-password)
+              (if (s-blank? q-qcon-user)
                 (progn
+                  ;; Prompting for user and password in case of unsuccessful passwordless connection attempt.
                   (setf q-qcon-user (read-string "Please enter the user name: " q-qcon-user))
                   (setf q-qcon-password (read-passwd "Please enter the password: "))
                   ;; test connection with new username and password.
                   (let ((helm-q-pass-required-p t)); save the password if it is ok.
                     (helm-q-test-active-connection host)))
-                nil))))))))
+                (progn
+                  ;; Prompting for new password in case of failed authentication.
+                  (setf q-qcon-password (read-passwd "Please enter the password: "))
+                  ;; test connection with new username and password.
+                  (let ((helm-q-pass-required-p t)); save the password if it is ok.
+                    (helm-q-test-active-connection host)))))))))))
 
 
 (provide 'helm-q)
