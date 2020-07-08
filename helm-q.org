@@ -15,6 +15,8 @@
   - [[#load-dependencies][load dependencies]]
   - [[#custom-variables][custom variables]]
 - [[#usage][Usage]]
+  - [[#basic-workflow][Basic workflow]]
+  - [[#password-storage][Password storage]]
 - [[#implementation][implementation]]
   - [[#helm-q-buffer-class][helm-q buffer class]]
   - [[#how-to-display-a-q-instance-in-helm-buffer][how to display a q instance in helm buffer]]
@@ -23,35 +25,75 @@
   - [[#get-one-instance-by-its-candidate-display-string][get one instance by its candidate display string]]
   - [[#match-funtion][match funtion]]
   - [[#helm-q-source-filtered-candidate-transformer][helm-q-source-filtered-candidate-transformer]]
-  - [[#default-persistent-action-to-connect-with-q-mode][default persistent action to connect with q-mode]]
+  - [[#password-management][password management]]
+  - [[#actions][actions]]
   - [[#the-interactive-command][The interactive command]]
+  - [[#test-connecting-of-qcon][test connecting of qcon]]
 - [[#release-current-library][Release current library]]
 
 * Preparation
 ** how to develop with helm
 https://github.com/emacs-helm/helm/wiki/Developing
-** load dependencies 
+** load dependencies
 #+BEGIN_SRC elisp
 (require 's)
+(require 'cl-lib)
 (require 'helm)
 (require 'q-mode)
+;;; Code:
 #+END_SRC
 ** custom variables
 #+BEGIN_SRC elisp
 (defgroup helm-q nil
-  "Helm mode for managing kdb+/q instances"
+  "Helm mode for managing kdb+/q instances."
   :group 'helm)
+
 (defcustom helm-q-config-directory "~/.helm-q/"
-  "The directory containing kdb connection files"
+  "The directory containing kdb connection files."
   :group 'helm-q
   :type 'string)
+
+(defcustom helm-q-password-storage 'pass
+  "The default storage method to use."
+  :group 'helm-q
+  :options '(nil pass)
+  :type 'symbol)
 #+END_SRC
 * Usage
-1. Put some JSON files with the same format as it is in [[./instances-meta.json]] to directory =~/.helm-q=.
-2. In Emacs, load ~helm-q.el~ by invoking command ~load-file~.
-3. Execute command ~helm-q~.
+** Basic workflow
+   1. Put some JSON files with the same format as it is in [[./instances-meta.json]] to directory =~/.helm-q=.
+   2. Load file ~helm-q.el~ (for example invoking command ~load-~file~).
+      Now you can execute interactive command ~helm-q~ by press key ~Alt-x~.
+      if ~M-x helm-q~ was invoked with ~C-u~ prefix argument, and after instance was selected from helm-q buffer,
+      We will prompt for new user and then for password in the minibuffer.
+      and ~qcon~ will attempt to connect with the supplied user:password.
+** Password storage
+We use [[https://www.passwordstore.org/][the standard unix password manager]] to store password in local encrypted file by default.
+So when connecting to a q process, ~helm-q~ will query password from it.
+
+We should have a GPG key to encrypt password to file and decrypt it back, to obtain this GPG key,
+please read a tutorial of GPG(for example [[https://docs.github.com/en/github/authenticating-to-github/generating-a-new-gpg-key][this one]]).
+After install [[https://www.passwordstore.org/][the standard unix password manager]], you have to set up it with a GPG key, for example:
+#+begin_src sh
+pass init AA224F33CCCCCCE40E6C1C2E8A48C70000022222
+#+end_src
+Here ~AA224F33CCCCCCE40E6C1C2E8A48C70000022222~ is the ID of your GPG key(in the output of the shell command ~gpg -k~).
+
+Let's run a test to check the setup.
+#+begin_src sh
+# insert a password
+pass insert test
+# If no error message for above command then it is ok, now let's retrieve the password.
+pass test
+#+end_src
+
+To manage password in ~helm-q~, please execute command ~helm-q~ and press key ~tab~ on a candidate, which will list available actions.
+
+If you want to prompt for new user, please invoke ~M-x helm-q~ with C-u prefix argument.
+
 * implementation
 ** helm-q buffer class
+We define a new helm source for ~helm-q~, which describes the additional and overwritten attributes of ~helm-q~.
 #+BEGIN_SRC elisp
 (defclass helm-q-source (helm-source-sync)
   ((instance-list
@@ -70,8 +112,13 @@ https://github.com/emacs-helm/helm/wiki/Developing
    (multimatch :initform nil)
    (multiline :initform t)
    (match :initform 'helm-q-source-match-function)
-   (action :initform 'helm-q-source-list-persistent-action)
-   (filtered-candidate-transformer :initform  'helm-q-source-filtered-candidate-transformer)
+   (action :initform
+           '(("Connect to a pre-existing q process"            . helm-q-source-action-qcon)
+             ("Display username/password for current instance" . helm-q-source-action-show-password)
+             ("Add username/password for current instance"     . helm-q-source-action-add-password)
+             ("Update username/password for current instance"  . helm-q-source-action-update-password)
+             ))
+   (filtered-candidate-transformer :initform 'helm-q-source-filtered-candidate-transformer)
    (migemo :initform 'nomultimatch)
    (volatile :initform t)
    (nohighlight :initform nil)
@@ -102,7 +149,7 @@ Now we can build a display string with fixed size.
                                     collect (helm-substring-by-width (format "%s" (cdr (assoc column instance)))
                                                                      (gethash column (helm-attr 'candidate-columns-width-hash))))))
         (context-matched-columns (helm-q-context-matched-columns instance)))
-    (propertize 
+    (propertize
      (if (null context-matched-columns)
        (propertize first-row 'face 'bold)
        (concat (propertize first-row 'face 'bold) "\n"
@@ -142,13 +189,13 @@ Argument DISPLAY-STR: the display string."
 #+END_SRC
 ** match funtion
 When match, we will test some columns that are not in ~candidate-columns~, which will not display by default.
-For them, if it can match, we will return them so can be added as additional lines for display.
+For them, if it can match, we will return them so then can be added as additional lines for display.
 #+BEGIN_SRC elisp
 (defun helm-q-context-matched-columns (instance)
   "Return a list of string for matched columns.
 Argument INSTANCE: one instance."
   (unless (s-blank? helm-pattern)
-    (append 
+    (append
      (cl-loop for table-columns in (cdr (assoc 'tablescolumns instance))
               for tab-name = (format "%s" (car table-columns))
               append (append (if (helm-buffer--match-pattern helm-pattern tab-name nil)
@@ -173,13 +220,14 @@ The helm match function will combine candidate columns and these additional colu
 Argument CANDIDATE: one helm candidate."
   (let ((instance (helm-q-get-instance-by-display candidate))
         (helm-buffers-fuzzy-matching t))
-    (or 
+    (or
       (cl-loop for slot in (helm-attr 'candidate-columns)
                for slot-value = (cdr (assoc slot instance))
                thereis (helm-buffer--match-pattern helm-pattern slot-value nil))
       (helm-q-context-matched-columns instance))))
 #+END_SRC
 ** helm-q-source-filtered-candidate-transformer
+Rebuild the candidate string after a search. 
 #+BEGIN_SRC elisp
 (defun helm-q-source-filtered-candidate-transformer (candidates source)
   "Filter candidates by context match.
@@ -188,25 +236,349 @@ Argument SOURCE: the source."
   (cl-loop for (nil . instance) in candidates
            collect (cons (helm-q-instance-display-string instance) instance)))
 #+END_SRC
-
-** default persistent action to connect with q-mode 
+** password management
+*** data format
+We use a custom format string as the entry, that is, "helm-q/{host}/{user}" to distinguish them from other entries.
 #+BEGIN_SRC elisp
-(defun helm-q-source-list-persistent-action (candidate)
+(defvar helm-q-pass-prefix "helm-q")
+#+END_SRC
+So to get a path for an host
+#+BEGIN_SRC elisp
+(defun helm-q-pass-path-of-host (host)
+  "Get the path for an host.
+Argument HOST: the host of an instance."
+  (format "%s/%s/" helm-q-pass-prefix host))
+#+END_SRC
+
+And the path for an user under an host.
+#+BEGIN_SRC elisp
+(defun helm-q-pass-path-of-host-user (host user)
+  "Get the path for an host.
+Argument HOST: the host of an instance.
+Argument USER: the user for the host."
+  (format "%s/%s/%s" helm-q-pass-prefix host user))
+#+END_SRC
+
+If we use ~pass~ as the storage, the stored password files just like the following file structure:
+#+begin_example
+$ pass show helm-q
+helm-q
+├── host.domain.com:5000
+│   ├── user1
+│   └── user2
+└── host.domain.com:5001
+    └── user1
+#+end_example
+
+We supply different password storage implementation, for each implementation, it should implement the following interfaces.
+#+BEGIN_SRC elisp
+(cl-defgeneric helm-q-pass-users-of-host (storage host)
+  "Get a list of users by its host.
+Argument STORAGE: a valid storage method.
+Argument HOST: a host.")
+
+(cl-defgeneric helm-q-get-pass (storage host user)
+  "Get pass by its host and user.
+Argument STORAGE: a valid storage method.
+Argument HOST: a host.
+Argument USER: an user name.")
+
+(cl-defgeneric helm-q-update-pass (storage host user &optional password)
+  "Update user and pass to local encrypted storage file.
+Argument STORAGE: a valid storage method.
+Argument HOST: the host of an instance.
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance.")
+#+END_SRC
+*** no password storage
+This case happens when variable ~helm-q-password-storage~ is ~nil~.
+That is, we will not store any password in file and will notify user when such action is invoked.
+**** get user name list for an host
+In this case, there are no users.
+#+BEGIN_SRC elisp
+(cl-defmethod helm-q-pass-users-of-host ((storage (eql nil)) host)
+  "Get a list of users by its host.
+Argument STORAGE: should be 'pass
+Argument HOST:"
+  nil)
+#+END_SRC
+**** get password for an user in an host
+In this case, no password.
+#+BEGIN_SRC elisp
+(cl-defmethod helm-q-get-pass ((storage (eql nil)) host user)
+  "Get pass by its host and user.
+Argument STORAGE: should be 'pass
+Argument HOST:
+Argument USER:"
+  nil)
+#+END_SRC
+**** update user name and password for an host
+In this case, we should notify user an error message.
+#+BEGIN_SRC elisp
+(cl-defmethod helm-q-update-pass ((storage (eql nil)) host user &optional password)
+  "Update user and pass to local pass storage file.
+Argument STORAGE: should be 'pass
+Argument HOST: the host of an instance.
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance."
+  (message "You can't save password because this feature is disabled by Emacs lisp variable 'helm-q-password-storage'."))
+#+END_SRC
+
+*** [[https://www.passwordstore.org/][the standard unix password manager]]
+**** the routine to call pass command.
+It will return a cons whose ~car~ is true if it runs successfully, and the ~cdr~ is the result string.
+#+BEGIN_SRC elisp
+(defun helm-q-run-pass (infile &rest args)
+  "Run pass with args.
+Argument INFILE: input file for pass process.
+Argument ARGS: additional arguments for pass."
+  (with-temp-buffer
+      (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) t args))
+             (result (trim-string (buffer-string))))
+        (cons (= 0 exit-code) result))))
+#+END_SRC
+**** get user name list for an host
+#+BEGIN_SRC elisp
+(cl-defmethod helm-q-pass-users-of-host ((storage (eql pass)) host)
+  "Get a list of users by its host.
+Argument STORAGE: should be 'pass
+Argument HOST:"
+  (cl-destructuring-bind (succ-p . result)
+      (helm-q-run-pass nil "ls" (helm-q-pass-path-of-host host))
+    (when succ-p
+      (let ((words (split-string result)))
+        ;; th words list has the format `("helm-q/host.domain.com:5000" "├──" "user1" "└──" "user2")' .
+        (cl-loop for user-list on (cdr words) by 'cddr
+                 collect (second user-list))))))
+#+END_SRC
+**** get password for an user in an host
+#+BEGIN_SRC elisp
+(cl-defmethod helm-q-get-pass ((storage (eql pass)) host user)
+  "Get pass by its host and user.
+Argument STORAGE: should be 'pass
+Argument HOST:
+Argument USER:"
+  (cl-destructuring-bind (succ-p . entry)
+      (helm-q-run-pass nil "show" (helm-q-pass-path-of-host-user host user))
+    (when succ-p
+      entry)))
+#+END_SRC
+**** update user name and password for an host
+#+BEGIN_SRC elisp
+(cl-defmethod helm-q-update-pass ((storage (eql pass)) host user &optional password)
+  "Update user and pass to local pass storage file.
+Argument STORAGE: should be 'pass
+Argument HOST: the host of an instance.
+Argument USER: the user for the instance.
+Argument PASSWORD: the optional password for the instance."
+  (let* ((pass (or password (read-passwd (format "Password for %s@%s: " user host) t)))
+         (in-file (make-temp-file "helm-q-")))
+    ;; when insert a password in pass, it will ask for password, `call-process' will let pass read it from this input file.
+    (with-temp-file in-file
+      (insert pass "\n" pass "\n\n"))
+    (unwind-protect
+        (cl-destructuring-bind (succ-p . entry)
+            (helm-q-run-pass in-file "insert" "-f" (helm-q-pass-path-of-host-user host user))
+          succ-p)
+      (delete-file in-file); delete this file to avoid potential security leak.
+      nil)))
+#+END_SRC
+*** select a user from a user list
+#+BEGIN_SRC elisp
+(defun helm-q-user (users)
+  "Select a user in Helm.
+Argument USERS: a user list."
+  (let ((prompt "Please select an user:")
+        (user "")
+        (helm-source
+         `((name . "helm-q-user-list")
+           (candidates . ,users)
+           (action . (lambda (candidate) (setf user candidate)))))
+        (helm :sources '(helm-source) :prompt prompt)
+        user)))
+#+END_SRC
+
+** actions
+*** default action to connect with q-mode
+if ~M-x helm-q~ was invoked with ~C-u~ prefix argument, and after instance was selected from helm-q buffer,
+prompt for new user and then for password in the minibuffer. Attempt to connect with the supplied user:password.
+In above condition, we will use a special variable to indicate the switch.
+#+BEGIN_SRC elisp
+(defvar helm-q-pass-required-p nil "Switch it on when helm-q was invoked with prefix argument.")
+#+END_SRC
+
+The action routine:
+#+BEGIN_SRC elisp
+(defun helm-q-source-action-qcon (candidate)
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
-         (address (cdr (assoc 'address instance))))
-    (message "connect to q: %s" address)
-    (q-qcon address)))
+         (host (cdr (assoc 'address instance)))
+         (server-port (split-string host ":"))
+         (q-qcon-server (car server-port))
+         (q-qcon-port (or (second server-port) q-qcon-port))
+         (users (helm-q-pass-users-of-host helm-q-password-storage host))
+         (q-qcon-user (if helm-q-pass-required-p
+                        (read-string "Please enter a new user name: " (car users))
+                        (case (length users)
+                          (0 "")
+                          (1 (car users))
+                          (2 (helm-q-user users)))))
+         (q-qcon-password (when q-qcon-user
+                            (if helm-q-pass-required-p
+                              (read-passwd (format "Password for %s@%s: " q-qcon-user q-qcon-server))
+                              (helm-q-get-pass helm-q-password-storage host q-qcon-user)))))
+    (when (helm-q-test-active-connection host)
+      (q-qcon (q-qcon-default-args)))))
+#+END_SRC
+*** action to show username and password
+#+BEGIN_SRC elisp
+(defun helm-q-source-action-show-password (candidate)
+  "Show password for current instance.
+Argument CANDIDATE: selected candidate."
+  (if (null helm-q-password-storage)
+    (message "This feature is disabled by Emacs lisp variable 'helm-q-password-storage'.")
+    (let* ((instance candidate)
+           (host (cdr (assoc 'address instance)))
+           (users (helm-q-pass-users-of-host helm-q-password-storage host)))
+      (case (length users)
+        (0 (message "No username/password for host %s" host))
+        (1 (message "%s@%s's password is '%s'" (car users) host (helm-q-get-pass helm-q-password-storage host (car users))))
+        (t (let ((user (helm-q-user users)))
+             (when user
+               (message "%s@%s's password is '%s'" user host (helm-q-get-pass helm-q-password-storage host user)))))))))
+#+END_SRC
+*** helm-q-source-action-add-password
+#+BEGIN_SRC elisp
+(defun helm-q-source-action-add-password (candidate)
+  "Add password for current instance.
+Argument CANDIDATE: selected candidate."
+  (if (null helm-q-password-storage)
+    (message "This feature is disabled by Emacs lisp variable 'helm-q-password-storage'.")
+    (let* ((instance candidate)
+           (host (cdr (assoc 'address instance)))
+           (user (read-string "Please enter the user name: ")))
+      (if (s-blank? user)
+        (message "Please input a valid user name!")
+        (helm-q-update-pass helm-q-password-storage host user)))))
+#+END_SRC
+
+*** action to update username and password
+#+BEGIN_SRC elisp
+(defun helm-q-source-action-update-password (candidate)
+  "Update password for current instance.
+Argument CANDIDATE: selected candidate."
+  (if (null helm-q-password-storage)
+    (message "This feature is disabled by Emacs lisp variable 'helm-q-password-storage'.")
+    (let* ((instance candidate)
+           (host (cdr (assoc 'address instance)))
+           (users (helm-q-pass-users-of-host helm-q-password-storage host)))
+      (case (length users)
+        (0 (message "No username/password for host %s" host))
+        (1 (helm-q-update-pass helm-q-password-storage host (car users)))
+        (t (let ((user (helm-q-user users)))
+             (when user
+               (helm-q-update-pass helm-q-password-storage host user))))))))
 #+END_SRC
 ** The interactive command
 #+BEGIN_SRC elisp
 ;;;###autoload
-(defun helm-q ()
-  "Select data source in helm."
-  (interactive)
-  (let ((helm-candidate-separator " "))
+(defun helm-q (arg)
+  "Select data source in helm.
+Argument ARG: prefix argument."
+  (interactive "P")
+  (let ((helm-candidate-separator " ")
+        (helm-q-pass-required-p (and arg t)))
     (helm :sources (helm-make-source "helm-q" 'helm-q-source)
           :buffer "*helm q*")))
+#+END_SRC
+** test connecting of qcon
+*** requirement
+We will try to send a command after connecting via ~q~ or ~qcon~ in Emacs, and execute different actions based on the test.
+
+The current behavior of qcon for a command likes this.
+#+begin_src sh
+$ qcon 192.168.0.100:5000 # a normal successful connection without password.
+192.168.0.100:5000>1+1
+2
+192.168.0.100:5000>\\
+$ qcon 192.168.0.100:5010:admin:password # a normal successful connection with password.
+192.168.0.100:5010>2
+2
+192.168.0.100:5010>\\
+$ qcon 192.168.0.100:5010:admin:badpassword # an invalid connection with bad password.
+192.168.0.100:5010>2
+192.168.0.100:5010>\\
+$ qcon 192.168.0.100:5010:baduser:badpassword  # an invalid connection with bad user.
+192.168.0.100:5010>2
+192.168.0.100:5010>\\
+$ qcon 192.168.0.100:5020                 # no process on the port
+192.168.0.100:5020>2
+conn: Connection refused
+$ qcon 192.168.1.111:5000                 # bad host
+192.168.1.111:5000>2
+conn: No route to host
+#+end_src
+So the actions we will do based on a test command are.
+- if after a command and the process is still alive,
+  - if there is a response,
+    we will treat it as a successful connection and store the username and password based on current storage method.
+  - if there is no response,
+    we will treat it as a failed connection and ask for new username and password for it and connect again.
+- if the process is dead,
+  - we will do nothing with it.
+
+*** implementation
+We will not do this test in ~comint~ buffer directly because it's an interactive buffer for user.
+Instead, we will create a new process of ~qcon~ and send test commands to it in a temp buffer.
+#+BEGIN_SRC elisp
+(defun helm-q-test-active-connection (host)
+  "Test connection of qcon, return true if connection is ok.
+Argument HOST: the host of current instance."
+  (message "Test connection...")
+  (let ((in-file (make-temp-file "helm-q-"))
+        (test-message "Test Connection."))
+    ;; prepare test commands in input file.
+    (with-temp-file in-file
+      (insert
+       ;; echo a test message.
+       "\"" test-message "\"" "\n"
+       ;; quit from this process.
+       "\\\\" "\n\n"))
+    (with-temp-buffer
+      (let* ((exit-code (apply 'call-process (expand-file-name q-qcon-program) in-file (current-buffer) t
+                               (list (q-qcon-default-args))))
+             (result (trim-string (buffer-string))))
+        (delete-file in-file); remove temp file after use.
+        (if (/= 0 exit-code)
+          ;; if failed to connect, report the result as error message.
+          (progn (message "connection failed: %s" result)
+                 nil)
+          (if (ignore-errors
+                (goto-char (point-min))
+                ;; The test message should occur in the output.
+                (search-forward test-message nil nil 1))
+            (progn
+              ;; connection is ok, save password for this connection if it is from user input.
+              (when helm-q-pass-required-p
+                (helm-q-update-pass helm-q-password-storage host q-qcon-user q-qcon-password))
+              t)
+            (progn
+              ;; invalid user/pass, ask for a new username and password.
+              (message "connection is not response: %s" result)
+              (if (s-blank? q-qcon-user)
+                (progn
+                  ;; Prompting for user and password in case of unsuccessful passwordless connection attempt.
+                  (setf q-qcon-user (read-string "Please enter the user name: " q-qcon-user))
+                  (setf q-qcon-password (read-passwd "Please enter the password: "))
+                  ;; test connection with new username and password.
+                  (let ((helm-q-pass-required-p t)); save the password if it is ok.
+                    (helm-q-test-active-connection host)))
+                (progn
+                  ;; Prompting for new password in case of failed authentication.
+                  (setf q-qcon-password (read-passwd "Please enter the password: "))
+                  ;; test connection with new username and password.
+                  (let ((helm-q-pass-required-p t)); save the password if it is ok.
+                    (helm-q-test-active-connection host)))))))))))
 #+END_SRC
 * Release current library
 And when a new version of [[./helm-q.el]] can release from this file,
@@ -217,7 +589,7 @@ the following code should execute.
  :header ";;; helm-q.el --- A library to manage remote q sessions with Helm and q-mode  -*- lexical-binding: t; -*-
 
 ;; URL: https://github.com/emacs-q/helm-q.el
-;; Package-Requires: ((emacs \"26.1\") (cl-lib \"0.6\") (helm \"1.9.4\") (s \"1.10.0\"))
+;; Package-Requires: ((emacs \"26.1\") (cl-lib \"0.6\") (helm \"1.9.4\") (s \"1.10.0\") (q-mode \"0.1\") (cl-lib \"1.0\"))
 
 ;;; Commentary:
 
