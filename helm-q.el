@@ -286,9 +286,16 @@ Argument USERS: a user list."
          (q-qcon-password (when q-qcon-user
                             (if helm-q-pass-required-p
                               (read-passwd (format "Password for %s@%s: " q-qcon-user host))
-                              (helm-q-get-pass helm-q-password-storage host q-qcon-user)))))
-    (when (helm-q-test-active-connection host)
-      (q-qcon (q-qcon-default-args)))))
+                              (helm-q-get-pass helm-q-password-storage host q-qcon-user))))
+         ;; KLUDGE: q-mode should supply a function to build buffer name.
+         (q-buffer-name (format "*%s*" (format "qcon-%s" (q-qcon-default-args))))
+         (q-buffer (get-buffer q-buffer-name)))
+    (if (and q-buffer
+             (process-live-p (get-buffer-process q-buffer)))
+      ;; activate to this buffer if the instance has already been connected.
+      (q-activate-buffer q-buffer-name)
+      (when (helm-q-test-active-connection host)
+        (q-qcon (q-qcon-default-args))))))
 
 (defun helm-q-source-action-show-password (candidate)
   "Show password for current instance.
@@ -389,6 +396,61 @@ Argument HOST: the host of current instance."
                   ;; test connection with new username and password.
                   (let ((helm-q-pass-required-p t)); save the password if it is ok.
                     (helm-q-test-active-connection host)))))))))))
+
+(defclass helm-q-running-source (helm-source-sync)
+  ((buffer-list
+    :initarg :buffer-list
+    :initform #'helm-q-running-buffer-list
+    :custom function
+    :documentation
+    "  A function with no arguments to get running buffer list.")
+   (init :initform 'helm-q-running-source-list--init)
+   (multimatch :initform nil)
+   (multiline :initform nil)
+   (action :initform
+           '(("Select a pre-existing q process" . helm-q-running-source-action-select-an-instance)))
+   (migemo :initform 'nomultimatch)
+   (volatile :initform t)
+   (nohighlight :initform nil)))
+
+(defun helm-q-running-source-action-select-an-instance (candidate)
+  "Select an running instance.
+Argument CANDIDATE: the selected candidate."
+  (q-activate-buffer candidate))
+
+(defun helm-q-running-buffer-list ()
+  "Get running Q buffers."
+  (loop for buffer in (buffer-list)
+        if (with-current-buffer buffer
+             (equal 'q-shell-mode major-mode))
+          collect (let ((buffer-name (buffer-name buffer)))
+                    (if (string= buffer-name q-active-buffer)
+                      (propertize buffer-name 'face 'bold)
+                      buffer-name))))
+
+(defun helm-q-running-source-list--init ()
+  "Initialize helm-q-running-source."
+  (helm-attrset 'candidates (funcall (helm-attr 'buffer-list))))
+
+(defun helm-q-update-active-buffer (&rest args)
+  "An advice function for `q-send-string'.
+To update active buffer based on prefix argument.
+Argument ARGS: the argument for original function."
+  (let ((update-active-buffer-p nil)
+        (helm-q-pass-required-p helm-q-pass-required-p))
+    (case (prefix-numeric-value current-prefix-arg)
+      (4 ; prefix C-u
+       (setf update-active-buffer-p t))
+      (16 ; prefix C-u C-u
+       (setf update-active-buffer-p t
+             helm-q-pass-required-p t)))
+    (when update-active-buffer-p
+      (let ((current-buffer (current-buffer)))
+        (helm :sources (list (helm-make-source "helm-running-q" 'helm-q-running-source)
+                             (helm-make-source "helm-q" 'helm-q-source))
+              :buffer "*helm q*")
+        (switch-to-buffer current-buffer)))))
+(advice-add 'q-send-string :before #'helm-q-update-active-buffer)
 
 
 (provide 'helm-q)
