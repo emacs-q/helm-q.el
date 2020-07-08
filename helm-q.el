@@ -292,7 +292,7 @@ Argument USERS: a user list."
          (q-buffer (get-buffer q-buffer-name)))
     (if (and q-buffer
              (process-live-p (get-buffer-process q-buffer)))
-      ;; activate to this buffer if the instance has already been connected.
+      ;; activate this buffer if the instance has already been connected.
       (q-activate-buffer q-buffer-name)
       (when (helm-q-test-active-connection host)
         (q-qcon (q-qcon-default-args))))))
