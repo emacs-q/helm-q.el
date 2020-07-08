@@ -273,9 +273,9 @@ Argument USERS: a user list."
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
          (host (cdr (assoc 'address instance)))
-         (server-port (split-string host ":"))
-         (q-qcon-server (car server-port))
-         (q-qcon-port (or (second server-port) q-qcon-port))
+         (host-port (split-string host ":"))
+         (q-qcon-server (car host-port))
+         (q-qcon-port (or (second host-port) q-qcon-port))
          (users (helm-q-pass-users-of-host helm-q-password-storage host))
          (q-qcon-user (if helm-q-pass-required-p
                         (read-string "Please enter a new user name: " (car users))
@@ -285,7 +285,7 @@ Argument USERS: a user list."
                           (2 (helm-q-user users)))))
          (q-qcon-password (when q-qcon-user
                             (if helm-q-pass-required-p
-                              (read-passwd (format "Password for %s@%s: " q-qcon-user q-qcon-server))
+                              (read-passwd (format "Password for %s@%s: " q-qcon-user host))
                               (helm-q-get-pass helm-q-password-storage host q-qcon-user)))))
     (when (helm-q-test-active-connection host)
       (q-qcon (q-qcon-default-args)))))
@@ -374,7 +374,7 @@ Argument HOST: the host of current instance."
               t)
             (progn
               ;; invalid user/pass, ask for a new username and password.
-              (message "connection is not response: %s" result)
+              (message "connection is not responding: %s" result)
               (if (s-blank? q-qcon-user)
                 (progn
                   ;; Prompting for user and password in case of unsuccessful passwordless connection attempt.
