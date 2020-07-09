@@ -362,7 +362,7 @@ Argument HOST: the host of current instance."
        ;; quit from this process.
        "\\\\" "\n\n"))
     (with-temp-buffer
-      (let* ((exit-code (apply 'call-process (expand-file-name q-qcon-program) in-file (current-buffer) t
+      (let* ((exit-code (apply 'call-process q-qcon-program in-file (current-buffer) t
                                (list (q-qcon-default-args))))
              (result (trim-string (buffer-string))))
         (delete-file in-file); remove temp file after use.
