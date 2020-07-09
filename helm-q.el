@@ -212,7 +212,7 @@ Argument INFILE: input file for pass process.
 Argument ARGS: additional arguments for pass."
   (with-temp-buffer
       (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) t args))
-             (result (trim-string (buffer-string))))
+             (result (string-trim (buffer-string))))
         (cons (= 0 exit-code) result))))
 
 (cl-defmethod helm-q-pass-users-of-host ((storage (eql pass)) host)
@@ -364,7 +364,7 @@ Argument HOST: the host of current instance."
     (with-temp-buffer
       (let* ((exit-code (apply 'call-process q-qcon-program in-file (current-buffer) t
                                (list (q-qcon-default-args))))
-             (result (trim-string (buffer-string))))
+             (result (string-trim (buffer-string))))
         (delete-file in-file); remove temp file after use.
         (if (/= 0 exit-code)
           ;; if failed to connect, report the result as error message.
