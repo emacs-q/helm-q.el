@@ -30,7 +30,7 @@
   :group 'helm-q
   :type 'string)
 
-(defcustom helm-q-password-storage 'pass
+(defcustom helm-q-password-storage nil ; Change to 'pass will enable password storage via the standard unix password manager.
   "The default storage method to use."
   :group 'helm-q
   :options '(nil pass)
