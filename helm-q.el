@@ -445,11 +445,15 @@ Argument ARGS: the argument for original function."
        (setf update-active-buffer-p t
              helm-q-pass-required-p t)))
     (when update-active-buffer-p
-      (let ((current-buffer (current-buffer)))
+      (let ((another-win (if (one-window-p)
+                       (if (> (window-width) 100)
+                         (split-window-horizontally)
+                         (split-window-vertically))
+                       (next-window))))
         (helm :sources (list (helm-make-source "helm-running-q" 'helm-q-running-source)
                              (helm-make-source "helm-q" 'helm-q-source))
               :buffer "*helm q*")
-        (switch-to-buffer current-buffer)))))
+        (set-window-buffer another-win q-active-buffer)))))
 (advice-add 'q-send-string :before #'helm-q-update-active-buffer)
 
 
