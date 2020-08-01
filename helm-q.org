@@ -69,7 +69,7 @@ https://github.com/emacs-helm/helm/wiki/Developing
       We will prompt for new user and then for password in the minibuffer.
       and ~qcon~ will attempt to connect with the supplied user:password.
    3. (Optional) If you want to load =helm-q.el= after loading =q-mode=, please add following initialization code in your =.emacs=
-#+begin_src elisp
+#+begin_src elisp :load no
 ;; Please be sure that `helm-q.el' can be found in `load-path'.
 (eval-after-load "q-mode" (require 'helm-q))
 #+end_src
