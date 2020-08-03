@@ -29,6 +29,7 @@
   - [[#actions][actions]]
   - [[#the-interactive-command][The interactive command]]
   - [[#test-connecting-of-qcon][test connecting of qcon]]
+  - [[#select-an-instance-when-run-q-evail-][select an instance when run =q-evail-*=]]
 - [[#release-current-library][Release current library]]
 
 * Preparation
@@ -53,7 +54,7 @@ https://github.com/emacs-helm/helm/wiki/Developing
   :group 'helm-q
   :type 'string)
 
-(defcustom helm-q-password-storage 'pass
+(defcustom helm-q-password-storage nil ; Change to 'pass will enable password storage via the standard unix password manager.
   "The default storage method to use."
   :group 'helm-q
   :options '(nil pass)
@@ -67,6 +68,11 @@ https://github.com/emacs-helm/helm/wiki/Developing
       if ~M-x helm-q~ was invoked with ~C-u~ prefix argument, and after instance was selected from helm-q buffer,
       We will prompt for new user and then for password in the minibuffer.
       and ~qcon~ will attempt to connect with the supplied user:password.
+   3. (Optional) If you want to load =helm-q.el= after loading =q-mode=, please add following initialization code in your =.emacs=
+#+begin_src elisp :load no
+;; Please be sure that `helm-q.el' can be found in `load-path'.
+(eval-after-load "q-mode" (require 'helm-q))
+#+end_src
 ** Password storage
 We use [[https://www.passwordstore.org/][the standard unix password manager]] to store password in local encrypted file by default.
 So when connecting to a q process, ~helm-q~ will query password from it.
@@ -334,7 +340,7 @@ Argument INFILE: input file for pass process.
 Argument ARGS: additional arguments for pass."
   (with-temp-buffer
       (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) t args))
-             (result (trim-string (buffer-string))))
+             (result (string-trim (buffer-string))))
         (cons (= 0 exit-code) result))))
 #+END_SRC
 **** get user name list for an host
@@ -413,9 +419,9 @@ The action routine:
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
          (host (cdr (assoc 'address instance)))
-         (server-port (split-string host ":"))
-         (q-qcon-server (car server-port))
-         (q-qcon-port (or (second server-port) q-qcon-port))
+         (host-port (split-string host ":"))
+         (q-qcon-server (car host-port))
+         (q-qcon-port (or (second host-port) q-qcon-port))
          (users (helm-q-pass-users-of-host helm-q-password-storage host))
          (q-qcon-user (if helm-q-pass-required-p
                         (read-string "Please enter a new user name: " (car users))
@@ -425,10 +431,17 @@ The action routine:
                           (2 (helm-q-user users)))))
          (q-qcon-password (when q-qcon-user
                             (if helm-q-pass-required-p
-                              (read-passwd (format "Password for %s@%s: " q-qcon-user q-qcon-server))
-                              (helm-q-get-pass helm-q-password-storage host q-qcon-user)))))
-    (when (helm-q-test-active-connection host)
-      (q-qcon (q-qcon-default-args)))))
+                              (read-passwd (format "Password for %s@%s: " q-qcon-user host))
+                              (helm-q-get-pass helm-q-password-storage host q-qcon-user))))
+         ;; KLUDGE: q-mode should supply a function to build buffer name.
+         (q-buffer-name (format "*%s*" (format "qcon-%s" (q-qcon-default-args))))
+         (q-buffer (get-buffer q-buffer-name)))
+    (if (and q-buffer
+             (process-live-p (get-buffer-process q-buffer)))
+      ;; activate this buffer if the instance has already been connected.
+      (q-activate-buffer q-buffer-name)
+      (when (helm-q-test-active-connection host)
+        (q-qcon (q-qcon-default-args))))))
 #+END_SRC
 *** action to show username and password
 #+BEGIN_SRC elisp
@@ -545,9 +558,9 @@ Argument HOST: the host of current instance."
        ;; quit from this process.
        "\\\\" "\n\n"))
     (with-temp-buffer
-      (let* ((exit-code (apply 'call-process (expand-file-name q-qcon-program) in-file (current-buffer) t
+      (let* ((exit-code (apply 'call-process q-qcon-program in-file (current-buffer) t
                                (list (q-qcon-default-args))))
-             (result (trim-string (buffer-string))))
+             (result (string-trim (buffer-string))))
         (delete-file in-file); remove temp file after use.
         (if (/= 0 exit-code)
           ;; if failed to connect, report the result as error message.
@@ -564,7 +577,7 @@ Argument HOST: the host of current instance."
               t)
             (progn
               ;; invalid user/pass, ask for a new username and password.
-              (message "connection is not response: %s" result)
+              (message "connection is not responding: %s" result)
               (if (s-blank? q-qcon-user)
                 (progn
                   ;; Prompting for user and password in case of unsuccessful passwordless connection attempt.
@@ -580,6 +593,102 @@ Argument HOST: the host of current instance."
                   (let ((helm-q-pass-required-p t)); save the password if it is ok.
                     (helm-q-test-active-connection host)))))))))))
 #+END_SRC
+** select an instance when run =q-evail-*=
+*** requirement
+In [[https://github.com/psaris/q-mode/blob/master/q-mode.el][q-mode]],  =q-eval-*= sends string (=q-send-string=) from Q-Script buffer to whichever Q-Shell comint buffer that 
+is marked as =q-active-buffer=. This is to be extended with the ability to interactively select which buffer/instance 
+should the string be sent to, skipping the need to manually =q-activate-buffer= each time a different destination is desired.
+
+Extend behavior of =q-eval-*=  so when it's called with prefix argument =C-u=, it brings up a helm buffer and 
+wait for the selection of an instance. This special helm buffer consists of two sections of candidates, 
+just like ~M-x list-buffers~ consists of three sections: =Buffers=, =Recentf= and =Create buffer=. The two sections are:
+
+1. =Buffers=: existing Q-Shell buffer candidates - searchable by buffer name
+2. =Instances=: =helm-q= qcon instance candidates searchable by attributes like tables, columns, functions etc.. 
+
+Note that the candidates can be overlapping, when an instance listed in =Instances= section is an already existing Q-Shell buffer 
+listed in Buffers section. Selecting such an instance should /not/ create a duplicate Q-Shell buffer.
+
+On selection, the selected Q-Shell buffer [[https://github.com/psaris/q-mode/blob/master/q-mode.el#L319][is marked]] as =q-active-buffer= and the string is sent to it (=q-send-string=) as usual.
+However, the cursor stays and never leaves the initial Q-Script buffer.
+
+When any of the =q-eval-*= commands are called with /double/ prefix argument =C-u C-u=, 
+invoke =helm-q= with single prefix argument to prompt for =user= and =password=.
+*** helm source of running instances.
+#+BEGIN_SRC elisp
+(defclass helm-q-running-source (helm-source-sync)
+  ((buffer-list
+    :initarg :buffer-list
+    :initform #'helm-q-running-buffer-list
+    :custom function
+    :documentation
+    "  A function with no arguments to get running buffer list.")
+   (init :initform 'helm-q-running-source-list--init)
+   (multimatch :initform nil)
+   (multiline :initform nil)
+   (action :initform
+           '(("Select a pre-existing q process" . helm-q-running-source-action-select-an-instance)))
+   (migemo :initform 'nomultimatch)
+   (volatile :initform t)
+   (nohighlight :initform nil)))
+#+END_SRC
+*** action to select an instance
+#+BEGIN_SRC elisp
+(defun helm-q-running-source-action-select-an-instance (candidate)
+  "Select an running instance.
+Argument CANDIDATE: the selected candidate."
+  (q-activate-buffer candidate))
+#+END_SRC
+*** Get running Q buffers 
+#+BEGIN_SRC elisp
+(defun helm-q-running-buffer-list ()
+  "Get running Q buffers."
+  (loop for buffer in (buffer-list)
+        if (with-current-buffer buffer
+             (equal 'q-shell-mode major-mode))
+          collect (let ((buffer-name (buffer-name buffer)))
+                    (if (string= buffer-name q-active-buffer)
+                      (propertize buffer-name 'face 'bold)
+                      buffer-name))))
+#+END_SRC
+
+*** initialize candidates of running instances
+#+BEGIN_SRC elisp
+(defun helm-q-running-source-list--init ()
+  "Initialize helm-q-running-source."
+  (helm-attrset 'candidates (funcall (helm-attr 'buffer-list))))
+#+END_SRC
+*** install as advice function
+We add a =before= [[https://www.gnu.org/software/emacs/manual/html_node/elisp/Advising-Functions.html][advice]] to function =q-send-string=, to detect the prefix argument for current command, to
+- change the =q-active-buffer= if necessary;
+- prompt for =user= and =password= in =helm-q=.
+- display =q-active-buffer= in another window.
+#+BEGIN_SRC elisp
+(defun helm-q-update-active-buffer (&rest args)
+  "An advice function for `q-send-string'.
+To update active buffer based on prefix argument.
+Argument ARGS: the argument for original function."
+  (let ((update-active-buffer-p nil)
+        (helm-q-pass-required-p helm-q-pass-required-p))
+    (case (prefix-numeric-value current-prefix-arg)
+      (4 ; prefix C-u
+       (setf update-active-buffer-p t))
+      (16 ; prefix C-u C-u
+       (setf update-active-buffer-p t
+             helm-q-pass-required-p t)))
+    (when update-active-buffer-p
+      (let ((another-win (if (one-window-p)
+                           (if (> (window-width) 100)
+                             (split-window-horizontally)
+                             (split-window-vertically))
+                           (next-window))))
+        (helm :sources (list (helm-make-source "helm-running-q" 'helm-q-running-source)
+                             (helm-make-source "helm-q" 'helm-q-source))
+              :buffer "*helm q*")
+        (set-window-buffer another-win q-active-buffer)))))
+(advice-add 'q-send-string :before #'helm-q-update-active-buffer)
+#+END_SRC
+
 * Release current library
 And when a new version of [[./helm-q.el]] can release from this file,
 the following code should execute.

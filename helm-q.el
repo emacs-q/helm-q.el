@@ -30,7 +30,7 @@
   :group 'helm-q
   :type 'string)
 
-(defcustom helm-q-password-storage 'pass
+(defcustom helm-q-password-storage nil ; Change to 'pass will enable password storage via the standard unix password manager.
   "The default storage method to use."
   :group 'helm-q
   :options '(nil pass)
@@ -212,7 +212,7 @@ Argument INFILE: input file for pass process.
 Argument ARGS: additional arguments for pass."
   (with-temp-buffer
       (let* ((exit-code (apply 'call-process "pass" infile (current-buffer) t args))
-             (result (trim-string (buffer-string))))
+             (result (string-trim (buffer-string))))
         (cons (= 0 exit-code) result))))
 
 (cl-defmethod helm-q-pass-users-of-host ((storage (eql pass)) host)
@@ -273,9 +273,9 @@ Argument USERS: a user list."
   "Argument CANDIDATE: selected candidate."
   (let* ((instance candidate)
          (host (cdr (assoc 'address instance)))
-         (server-port (split-string host ":"))
-         (q-qcon-server (car server-port))
-         (q-qcon-port (or (second server-port) q-qcon-port))
+         (host-port (split-string host ":"))
+         (q-qcon-server (car host-port))
+         (q-qcon-port (or (second host-port) q-qcon-port))
          (users (helm-q-pass-users-of-host helm-q-password-storage host))
          (q-qcon-user (if helm-q-pass-required-p
                         (read-string "Please enter a new user name: " (car users))
@@ -285,10 +285,17 @@ Argument USERS: a user list."
                           (2 (helm-q-user users)))))
          (q-qcon-password (when q-qcon-user
                             (if helm-q-pass-required-p
-                              (read-passwd (format "Password for %s@%s: " q-qcon-user q-qcon-server))
-                              (helm-q-get-pass helm-q-password-storage host q-qcon-user)))))
-    (when (helm-q-test-active-connection host)
-      (q-qcon (q-qcon-default-args)))))
+                              (read-passwd (format "Password for %s@%s: " q-qcon-user host))
+                              (helm-q-get-pass helm-q-password-storage host q-qcon-user))))
+         ;; KLUDGE: q-mode should supply a function to build buffer name.
+         (q-buffer-name (format "*%s*" (format "qcon-%s" (q-qcon-default-args))))
+         (q-buffer (get-buffer q-buffer-name)))
+    (if (and q-buffer
+             (process-live-p (get-buffer-process q-buffer)))
+      ;; activate this buffer if the instance has already been connected.
+      (q-activate-buffer q-buffer-name)
+      (when (helm-q-test-active-connection host)
+        (q-qcon (q-qcon-default-args))))))
 
 (defun helm-q-source-action-show-password (candidate)
   "Show password for current instance.
@@ -355,9 +362,9 @@ Argument HOST: the host of current instance."
        ;; quit from this process.
        "\\\\" "\n\n"))
     (with-temp-buffer
-      (let* ((exit-code (apply 'call-process (expand-file-name q-qcon-program) in-file (current-buffer) t
+      (let* ((exit-code (apply 'call-process q-qcon-program in-file (current-buffer) t
                                (list (q-qcon-default-args))))
-             (result (trim-string (buffer-string))))
+             (result (string-trim (buffer-string))))
         (delete-file in-file); remove temp file after use.
         (if (/= 0 exit-code)
           ;; if failed to connect, report the result as error message.
@@ -374,7 +381,7 @@ Argument HOST: the host of current instance."
               t)
             (progn
               ;; invalid user/pass, ask for a new username and password.
-              (message "connection is not response: %s" result)
+              (message "connection is not responding: %s" result)
               (if (s-blank? q-qcon-user)
                 (progn
                   ;; Prompting for user and password in case of unsuccessful passwordless connection attempt.
@@ -389,6 +396,65 @@ Argument HOST: the host of current instance."
                   ;; test connection with new username and password.
                   (let ((helm-q-pass-required-p t)); save the password if it is ok.
                     (helm-q-test-active-connection host)))))))))))
+
+(defclass helm-q-running-source (helm-source-sync)
+  ((buffer-list
+    :initarg :buffer-list
+    :initform #'helm-q-running-buffer-list
+    :custom function
+    :documentation
+    "  A function with no arguments to get running buffer list.")
+   (init :initform 'helm-q-running-source-list--init)
+   (multimatch :initform nil)
+   (multiline :initform nil)
+   (action :initform
+           '(("Select a pre-existing q process" . helm-q-running-source-action-select-an-instance)))
+   (migemo :initform 'nomultimatch)
+   (volatile :initform t)
+   (nohighlight :initform nil)))
+
+(defun helm-q-running-source-action-select-an-instance (candidate)
+  "Select an running instance.
+Argument CANDIDATE: the selected candidate."
+  (q-activate-buffer candidate))
+
+(defun helm-q-running-buffer-list ()
+  "Get running Q buffers."
+  (loop for buffer in (buffer-list)
+        if (with-current-buffer buffer
+             (equal 'q-shell-mode major-mode))
+          collect (let ((buffer-name (buffer-name buffer)))
+                    (if (string= buffer-name q-active-buffer)
+                      (propertize buffer-name 'face 'bold)
+                      buffer-name))))
+
+(defun helm-q-running-source-list--init ()
+  "Initialize helm-q-running-source."
+  (helm-attrset 'candidates (funcall (helm-attr 'buffer-list))))
+
+(defun helm-q-update-active-buffer (&rest args)
+  "An advice function for `q-send-string'.
+To update active buffer based on prefix argument.
+Argument ARGS: the argument for original function."
+  (let ((update-active-buffer-p nil)
+        (helm-q-pass-required-p helm-q-pass-required-p))
+    (case (prefix-numeric-value current-prefix-arg)
+      (4 ; prefix C-u
+       (setf update-active-buffer-p t))
+      (16 ; prefix C-u C-u
+       (setf update-active-buffer-p t
+             helm-q-pass-required-p t)))
+    (when update-active-buffer-p
+      (let ((another-win (if (one-window-p)
+                           (if (> (window-width) 100)
+                             (split-window-horizontally)
+                             (split-window-vertically))
+                           (next-window))))
+        (helm :sources (list (helm-make-source "helm-running-q" 'helm-q-running-source)
+                             (helm-make-source "helm-q" 'helm-q-source))
+              :buffer "*helm q*")
+        (set-window-buffer another-win q-active-buffer)))))
+(advice-add 'q-send-string :before #'helm-q-update-active-buffer)
 
 
 (provide 'helm-q)
