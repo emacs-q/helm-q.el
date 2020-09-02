@@ -421,11 +421,14 @@ Argument CANDIDATE: the selected candidate."
 
 (defun helm-q-running-buffer-list ()
   "Get running Q buffers."
-  (loop for buffer in (buffer-list)
+  (loop with q-active-buffer-name = (if (bufferp q-active-buffer)
+                                      (buffer-name q-active-buffer)
+                                      q-active-buffer)
+        for buffer in (buffer-list)
         if (with-current-buffer buffer
              (equal 'q-shell-mode major-mode))
           collect (let ((buffer-name (buffer-name buffer)))
-                    (if (string= buffer-name (buffer-name q-active-buffer))
+                    (if (string= buffer-name q-active-buffer-name)
                       (propertize buffer-name 'face 'bold)
                       buffer-name))))
 
