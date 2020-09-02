@@ -345,7 +345,8 @@ Argument ARG: prefix argument."
   (interactive "P")
   (let ((helm-candidate-separator " ")
         (helm-q-pass-required-p (and arg t)))
-    (helm :sources (helm-make-source "helm-q" 'helm-q-source)
+    (helm :sources (list (helm-make-source "helm-running-q" 'helm-q-running-source)
+                         (helm-make-source "helm-q" 'helm-q-source))
           :buffer "*helm q*")))
 
 (defun helm-q-test-active-connection (host)
@@ -424,7 +425,7 @@ Argument CANDIDATE: the selected candidate."
         if (with-current-buffer buffer
              (equal 'q-shell-mode major-mode))
           collect (let ((buffer-name (buffer-name buffer)))
-                    (if (string= buffer-name q-active-buffer)
+                    (if (string= buffer-name (buffer-name q-active-buffer))
                       (propertize buffer-name 'face 'bold)
                       buffer-name))))
 
