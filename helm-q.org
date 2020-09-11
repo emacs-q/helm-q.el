@@ -128,7 +128,7 @@ We define a new helm source for ~helm-q~, which describes the additional and ove
 (defclass helm-q-source (helm-source-sync)
   ((instance-list
     :initarg :instance-list
-    :initform #'helm-q-instance-list
+    :initform #'helm-q-instance-list-from-config-directory
     :custom function
     :documentation
     "  A function with no arguments to create instance list.")
@@ -189,17 +189,25 @@ Now we can build a display string with fixed size.
      'instance instance)))
 #+END_SRC
 ** setup instance list
+Normally the setup will be used by class =helm-q-source= to load instances from file =instances-meta.json=,
+but you can overwrite the slot =instance-list= to load instances as you want, so we write a routine to setup for incoming instances:
 #+BEGIN_SRC elisp
-(defun helm-q-instance-list ()
+(defun helm-q-instance-list (instances)
+  "Load source for instances.
+Argument INSTANCES: the incoming list of instance."
+  (helm-q-calculate-columns-width instances)
+  ;; a list whose members are `(DISPLAY . REAL)' pairs.
+  (cl-loop for instance in instances
+           collect (cons (helm-q-instance-display-string instance) instance)))
+#+END_SRC
+
+#+BEGIN_SRC elisp
+(defun helm-q-instance-list-from-config-directory ()
   "Load source from json files in a directory."
   (require 'json)
-  (let ((instances (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
-                            append (cl-loop for instance across (json-read-file file)
-                                            collect instance))))
-    (helm-q-calculate-columns-width instances)
-    ;; a list whose members are `(DISPLAY . REAL)' pairs.
-    (cl-loop for instance in instances
-             collect (cons (helm-q-instance-display-string instance) instance))))
+  (helm-q-instance-list (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
+                                 append (cl-loop for instance across (json-read-file file)
+                                                 collect instance))))
 #+END_SRC
 ** initialize helm-q-source
 #+BEGIN_SRC elisp

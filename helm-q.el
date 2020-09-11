@@ -46,7 +46,7 @@ These fields in second item can be found in file `instances-meta.json'."
 (defclass helm-q-source (helm-source-sync)
   ((instance-list
     :initarg :instance-list
-    :initform #'helm-q-instance-list
+    :initform #'helm-q-instance-list-from-config-directory
     :custom function
     :documentation
     "  A function with no arguments to create instance list.")
@@ -99,16 +99,20 @@ Argument INSTANCES: the instance list."
                              context-matched-columns))))
      'instance instance)))
 
-(defun helm-q-instance-list ()
+(defun helm-q-instance-list (instances)
+  "Load source for instances.
+Argument INSTANCES: the incoming list of instance."
+  (helm-q-calculate-columns-width instances)
+  ;; a list whose members are `(DISPLAY . REAL)' pairs.
+  (cl-loop for instance in instances
+           collect (cons (helm-q-instance-display-string instance) instance)))
+
+(defun helm-q-instance-list-from-config-directory ()
   "Load source from json files in a directory."
   (require 'json)
-  (let ((instances (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
-                            append (cl-loop for instance across (json-read-file file)
-                                            collect instance))))
-    (helm-q-calculate-columns-width instances)
-    ;; a list whose members are `(DISPLAY . REAL)' pairs.
-    (cl-loop for instance in instances
-             collect (cons (helm-q-instance-display-string instance) instance))))
+  (helm-q-instance-list (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
+                                 append (cl-loop for instance across (json-read-file file)
+                                                 collect instance))))
 
 (defun helm-q-source-list--init ()
   "Initialize helm-q-source."
