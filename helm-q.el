@@ -281,10 +281,10 @@ Argument INSTANCE: the instance."
                         collect (cdr (assoc pattern instance)))
                (first helm-q-qcon-buffer-name-pattern)))
 
-(defun helm-q-shell-buffer-name (instance)
+(defun helm-q-shell-buffer-name (buffer-id)
   "Build Q-Shell buffer name based on user configuration.
-Argument INSTANCE: the instance."
-  (concat "*qcon-" (helm-q-shell-buffer-id instance) "*"))
+Argument BUFFER-ID: the buffer id."
+  (concat "*qcon-" buffer-id "*"))
 
 (defvar helm-q-pass-required-p nil "Switch it on when helm-q was invoked with prefix argument.")
 
@@ -308,7 +308,7 @@ Argument INSTANCE: the instance."
                               (helm-q-get-pass helm-q-password-storage host q-qcon-user))))
          ;; KLUDGE: q-mode should supply a function to build buffer name.
          (q-buffer-name (format "*%s*" (format "qcon-%s" (q-qcon-default-args))))
-         (helm-q-buffer-name (helm-q-shell-buffer-name instance))
+         (helm-q-buffer-name (helm-q-shell-buffer-name (helm-q-shell-buffer-id instance)))
          (q-buffer (get-buffer q-buffer-name)))
     (if (and helm-q-buffer-name
              (process-live-p (get-buffer-process helm-q-buffer-name)))
