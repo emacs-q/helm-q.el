@@ -107,7 +107,7 @@ To manage password in ~helm-q~, please execute command ~helm-q~ and press key ~t
 If you want to prompt for new user, please invoke ~M-x helm-q~ with C-u prefix argument.
 ** The pattern for Q-Shell buffer name
 =helm-q= manages the Q-Shell buffer name via variable =helm-q-qcon-buffer-name-pattern=,
-which is src_elisp{'("." (service env region))} by default.
+which is ~'("." (service env region))~ by default.
 The first item in the list is the concatenator to join the fields in second item.
 These fields in second item can be found in file `instances-meta.json'.
 
