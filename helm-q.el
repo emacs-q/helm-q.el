@@ -36,6 +36,13 @@
   :options '(nil pass)
   :type 'symbol)
 
+(defcustom helm-q-qcon-buffer-name-pattern '("." (service env region))
+  "The name matching pattern used to build the Q-Shell buffer name.
+The first item is the concatenator to join the fields in second item.
+These fields in second item can be found in file `instances-meta.json'."
+  :group 'helm-q
+  :type 'list)
+
 (defclass helm-q-source (helm-source-sync)
   ((instance-list
     :initarg :instance-list
@@ -267,6 +274,18 @@ Argument USERS: a user list."
         (helm :sources '(helm-source) :prompt prompt)
         user)))
 
+(defun helm-q-shell-buffer-id (instance)
+  "Build Q-Shell buffer id based on user configuration.
+Argument INSTANCE: the instance."
+  (string-join (cl-loop for pattern in (second helm-q-qcon-buffer-name-pattern)
+                        collect (cdr (assoc pattern instance)))
+               (first helm-q-qcon-buffer-name-pattern)))
+
+(defun helm-q-shell-buffer-name (instance)
+  "Build Q-Shell buffer name based on user configuration.
+Argument INSTANCE: the instance."
+  (concat "*qcon-" (helm-q-shell-buffer-id instance) "*"))
+
 (defvar helm-q-pass-required-p nil "Switch it on when helm-q was invoked with prefix argument.")
 
 (defun helm-q-source-action-qcon (candidate)
@@ -289,13 +308,16 @@ Argument USERS: a user list."
                               (helm-q-get-pass helm-q-password-storage host q-qcon-user))))
          ;; KLUDGE: q-mode should supply a function to build buffer name.
          (q-buffer-name (format "*%s*" (format "qcon-%s" (q-qcon-default-args))))
+         (helm-q-buffer-name (helm-q-shell-buffer-name instance))
          (q-buffer (get-buffer q-buffer-name)))
-    (if (and q-buffer
-             (process-live-p (get-buffer-process q-buffer)))
+    (if (and helm-q-buffer-name
+             (process-live-p (get-buffer-process helm-q-buffer-name)))
       ;; activate this buffer if the instance has already been connected.
-      (q-activate-buffer q-buffer-name)
+      (q-activate-buffer helm-q-buffer-name)
       (when (helm-q-test-active-connection host)
-        (q-qcon (q-qcon-default-args))))))
+        (q-qcon (q-qcon-default-args))
+        (rename-buffer helm-q-buffer-name)
+        (q-activate-buffer helm-q-buffer-name)))))
 
 (defun helm-q-source-action-show-password (candidate)
   "Show password for current instance.

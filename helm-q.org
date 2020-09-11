@@ -17,6 +17,7 @@
 - [[#usage][Usage]]
   - [[#basic-workflow][Basic workflow]]
   - [[#password-storage][Password storage]]
+  - [[#the-pattern-for-q-shell-buffer-name][The pattern for Q-Shell buffer name]]
 - [[#implementation][implementation]]
   - [[#helm-q-buffer-class][helm-q buffer class]]
   - [[#how-to-display-a-q-instance-in-helm-buffer][how to display a q instance in helm buffer]]
@@ -26,6 +27,7 @@
   - [[#match-funtion][match funtion]]
   - [[#helm-q-source-filtered-candidate-transformer][helm-q-source-filtered-candidate-transformer]]
   - [[#password-management][password management]]
+  - [[#buffer-name-for-q-shell][buffer name for Q-Shell]]
   - [[#actions][actions]]
   - [[#the-interactive-command][The interactive command]]
   - [[#test-connecting-of-qcon][test connecting of qcon]]
@@ -59,6 +61,13 @@ https://github.com/emacs-helm/helm/wiki/Developing
   :group 'helm-q
   :options '(nil pass)
   :type 'symbol)
+
+(defcustom helm-q-qcon-buffer-name-pattern '("." (service env region))
+  "The name matching pattern used to build the Q-Shell buffer name.
+The first item is the concatenator to join the fields in second item.
+These fields in second item can be found in file `instances-meta.json'."
+  :group 'helm-q
+  :type 'list)
 #+END_SRC
 * Usage
 ** Basic workflow
@@ -96,7 +105,21 @@ pass test
 To manage password in ~helm-q~, please execute command ~helm-q~ and press key ~tab~ on a candidate, which will list available actions.
 
 If you want to prompt for new user, please invoke ~M-x helm-q~ with C-u prefix argument.
+** The pattern for Q-Shell buffer name
+=helm-q= manages the Q-Shell buffer name via variable =helm-q-qcon-buffer-name-pattern=, which is ='("." (service env region))= by default.
+The first item in the list is the concatenator to join the fields in second item.
+These fields in second item can be found in file `instances-meta.json'.
 
+For example, if =instances-meta.json= contains instance with attributes:
+#+begin_example
+service:"TAQ.HDB"
+env:"prod"
+region:"nam"
+#+end_example
+Then the Q-Shell buffer name for this instance will be =*qcon-TAQ.HDB.prod.nam*=, which contains 
+- a prefix =*qcon-=,
+- the string joining fields =service=, =env=, =region= with a dot(=.=), and
+- a suffix =*=.
 * implementation
 ** helm-q buffer class
 We define a new helm source for ~helm-q~, which describes the additional and overwritten attributes of ~helm-q~.
@@ -404,6 +427,22 @@ Argument USERS: a user list."
         user)))
 #+END_SRC
 
+** buffer name for Q-Shell
+The buffer id is a string based on user configuration without prefix and suffix string. 
+And the buffer name will surround buffer id with prefix "*qcon-" and suffix "*".
+#+BEGIN_SRC elisp
+(defun helm-q-shell-buffer-id (instance)
+  "Build Q-Shell buffer id based on user configuration.
+Argument INSTANCE: the instance."
+  (string-join (cl-loop for pattern in (second helm-q-qcon-buffer-name-pattern)
+                        collect (cdr (assoc pattern instance)))
+               (first helm-q-qcon-buffer-name-pattern)))
+
+(defun helm-q-shell-buffer-name (instance)
+  "Build Q-Shell buffer name based on user configuration.
+Argument INSTANCE: the instance."
+  (concat "*qcon-" (helm-q-shell-buffer-id instance) "*"))
+#+END_SRC
 ** actions
 *** default action to connect with q-mode
 if ~M-x helm-q~ was invoked with ~C-u~ prefix argument, and after instance was selected from helm-q buffer,
@@ -435,13 +474,16 @@ The action routine:
                               (helm-q-get-pass helm-q-password-storage host q-qcon-user))))
          ;; KLUDGE: q-mode should supply a function to build buffer name.
          (q-buffer-name (format "*%s*" (format "qcon-%s" (q-qcon-default-args))))
+         (helm-q-buffer-name (helm-q-shell-buffer-name instance))
          (q-buffer (get-buffer q-buffer-name)))
-    (if (and q-buffer
-             (process-live-p (get-buffer-process q-buffer)))
+    (if (and helm-q-buffer-name
+             (process-live-p (get-buffer-process helm-q-buffer-name)))
       ;; activate this buffer if the instance has already been connected.
-      (q-activate-buffer q-buffer-name)
+      (q-activate-buffer helm-q-buffer-name)
       (when (helm-q-test-active-connection host)
-        (q-qcon (q-qcon-default-args))))))
+        (q-qcon (q-qcon-default-args))
+        (rename-buffer helm-q-buffer-name)
+        (q-activate-buffer helm-q-buffer-name)))))
 #+END_SRC
 *** action to show username and password
 #+BEGIN_SRC elisp
