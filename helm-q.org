@@ -113,13 +113,13 @@ The fields in second item can be found in file =instances-meta.json=.
 
 For example, if file =instances-meta.json= contains instance with attributes:
 #+begin_example
-service:"TAQ.HDB"
-env:"prod"
+service:"TAQ.HDB",
+env:"prod",
 region:"nam"
 #+end_example
 Then the Q-Shell buffer name for this instance will be =*qcon-TAQ.HDB.prod.nam*=, which contains 
-- a prefix =*qcon-=,
-- the string joining fields =service=, =env=, =region= with a dot(=.=), and
+- A prefix =*qcon-= and
+- a string joining fields =service=, =env=, =region= with a dot(=.=), and
 - a suffix =*=.
 * implementation
 ** helm-q buffer class
