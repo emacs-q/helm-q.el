@@ -36,10 +36,17 @@
   :options '(nil pass)
   :type 'symbol)
 
+(defcustom helm-q-qcon-buffer-name-pattern '("." (service env region))
+  "The name matching pattern used to build the Q-Shell buffer name.
+The first item is the concatenator to join the fields in second item.
+These fields in second item can be found in file `instances-meta.json'."
+  :group 'helm-q
+  :type 'list)
+
 (defclass helm-q-source (helm-source-sync)
   ((instance-list
     :initarg :instance-list
-    :initform #'helm-q-instance-list
+    :initform #'helm-q-instance-list-from-config-directory
     :custom function
     :documentation
     "  A function with no arguments to create instance list.")
@@ -92,16 +99,20 @@ Argument INSTANCES: the instance list."
                              context-matched-columns))))
      'instance instance)))
 
-(defun helm-q-instance-list ()
+(defun helm-q-instance-list (instances)
+  "Load source for instances.
+Argument INSTANCES: the incoming list of instance."
+  (helm-q-calculate-columns-width instances)
+  ;; a list whose members are `(DISPLAY . REAL)' pairs.
+  (cl-loop for instance in instances
+           collect (cons (helm-q-instance-display-string instance) instance)))
+
+(defun helm-q-instance-list-from-config-directory ()
   "Load source from json files in a directory."
   (require 'json)
-  (let ((instances (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
-                            append (cl-loop for instance across (json-read-file file)
-                                            collect instance))))
-    (helm-q-calculate-columns-width instances)
-    ;; a list whose members are `(DISPLAY . REAL)' pairs.
-    (cl-loop for instance in instances
-             collect (cons (helm-q-instance-display-string instance) instance))))
+  (helm-q-instance-list (cl-loop for file in (directory-files helm-q-config-directory t ".json$")
+                                 append (cl-loop for instance across (json-read-file file)
+                                                 collect instance))))
 
 (defun helm-q-source-list--init ()
   "Initialize helm-q-source."
@@ -267,6 +278,18 @@ Argument USERS: a user list."
         (helm :sources '(helm-source) :prompt prompt)
         user)))
 
+(defun helm-q-shell-buffer-id (instance)
+  "Build Q-Shell buffer id based on user configuration.
+Argument INSTANCE: the instance."
+  (string-join (cl-loop for pattern in (second helm-q-qcon-buffer-name-pattern)
+                        collect (cdr (assoc pattern instance)))
+               (first helm-q-qcon-buffer-name-pattern)))
+
+(defun helm-q-shell-buffer-name (buffer-id)
+  "Build Q-Shell buffer name based on user configuration.
+Argument BUFFER-ID: the buffer id."
+  (concat "*qcon-" buffer-id "*"))
+
 (defvar helm-q-pass-required-p nil "Switch it on when helm-q was invoked with prefix argument.")
 
 (defun helm-q-source-action-qcon (candidate)
@@ -289,13 +312,16 @@ Argument USERS: a user list."
                               (helm-q-get-pass helm-q-password-storage host q-qcon-user))))
          ;; KLUDGE: q-mode should supply a function to build buffer name.
          (q-buffer-name (format "*%s*" (format "qcon-%s" (q-qcon-default-args))))
+         (helm-q-buffer-name (helm-q-shell-buffer-name (helm-q-shell-buffer-id instance)))
          (q-buffer (get-buffer q-buffer-name)))
-    (if (and q-buffer
-             (process-live-p (get-buffer-process q-buffer)))
+    (if (and helm-q-buffer-name
+             (process-live-p (get-buffer-process helm-q-buffer-name)))
       ;; activate this buffer if the instance has already been connected.
-      (q-activate-buffer q-buffer-name)
+      (q-activate-buffer helm-q-buffer-name)
       (when (helm-q-test-active-connection host)
-        (q-qcon (q-qcon-default-args))))))
+        (q-qcon (q-qcon-default-args))
+        (rename-buffer helm-q-buffer-name)
+        (q-activate-buffer helm-q-buffer-name)))))
 
 (defun helm-q-source-action-show-password (candidate)
   "Show password for current instance.
@@ -344,8 +370,10 @@ Argument CANDIDATE: selected candidate."
 Argument ARG: prefix argument."
   (interactive "P")
   (let ((helm-candidate-separator " ")
+        (helm-q-bringing-q-actite-buffer-front-p t)
         (helm-q-pass-required-p (and arg t)))
-    (helm :sources (helm-make-source "helm-q" 'helm-q-source)
+    (helm :sources (list (helm-make-source "helm-running-q" 'helm-q-running-source)
+                         (helm-make-source "helm-q" 'helm-q-source))
           :buffer "*helm q*")))
 
 (defun helm-q-test-active-connection (host)
@@ -413,18 +441,25 @@ Argument HOST: the host of current instance."
    (volatile :initform t)
    (nohighlight :initform nil)))
 
+(defvar helm-q-bringing-q-actite-buffer-front-p nil)
+
 (defun helm-q-running-source-action-select-an-instance (candidate)
   "Select an running instance.
 Argument CANDIDATE: the selected candidate."
-  (q-activate-buffer candidate))
+  (q-activate-buffer candidate)
+  (when helm-q-bringing-q-actite-buffer-front-p
+    (pop-to-buffer q-active-buffer)))
 
 (defun helm-q-running-buffer-list ()
   "Get running Q buffers."
-  (loop for buffer in (buffer-list)
+  (loop with q-active-buffer-name = (if (bufferp q-active-buffer)
+                                      (buffer-name q-active-buffer)
+                                      q-active-buffer)
+        for buffer in (buffer-list)
         if (with-current-buffer buffer
              (equal 'q-shell-mode major-mode))
           collect (let ((buffer-name (buffer-name buffer)))
-                    (if (string= buffer-name q-active-buffer)
+                    (if (string= buffer-name q-active-buffer-name)
                       (propertize buffer-name 'face 'bold)
                       buffer-name))))
 
