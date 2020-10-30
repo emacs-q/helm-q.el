@@ -57,7 +57,7 @@ These fields in second item can be found in file `instances-meta.json'."
     :initform (make-hash-table :test 'equal)
     :documentation "The width of each column in candidate-columns, key is the column symbol and value is the width of it.")
    (init :initform 'helm-q-source-list--init)
-   (multimatch :initform nil)
+   (multimatch :initform t)
    (multiline :initform t)
    (match :initform 'helm-q-source-match-function)
    (action :initform
