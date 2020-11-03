@@ -130,22 +130,27 @@ Argument DISPLAY-STR: the display string."
   "Return a list of string for matched columns.
 Argument INSTANCE: one instance."
   (unless (s-blank? helm-pattern)
-    (append
-     (cl-loop for table-columns in (cdr (assoc 'tablescolumns instance))
-              for tab-name = (format "%s" (car table-columns))
-              append (append (if (helm-buffer--match-pattern helm-pattern tab-name nil)
+    (let ((word-patterns (split-string helm-pattern)))
+      (append
+       (cl-loop for table-columns in (cdr (assoc 'tablescolumns instance))
+                for tab-name = (format "%s" (car table-columns))
+                append (append (if (loop for pattern in word-patterns
+                                         thereis (helm-buffer--match-pattern pattern tab-name nil))
                                  (list (format "Table:'%s'" tab-name)))
-                             (cl-loop for column-name across (cdr table-columns)
-                                      if (helm-buffer--match-pattern helm-pattern column-name nil)
-                                      collect (format "Column:'%s.%s'" tab-name column-name))))
-     (cl-loop for (function) in (cdr (assoc 'functions instance))
-              for function-name = (format "%s" function)
-              if (helm-buffer--match-pattern helm-pattern function-name nil)
-              collect (format "Function:'%s'" function-name))
+                               (cl-loop for column-name across (cdr table-columns)
+                                        if (loop for pattern in word-patterns
+                                                 thereis (helm-buffer--match-pattern pattern column-name nil))
+                                        collect (format "Column:'%s.%s'" tab-name column-name))))
+       (cl-loop for (function) in (cdr (assoc 'functions instance))
+                for function-name = (format "%s" function)
+                if (loop for pattern in word-patterns
+                         thereis (helm-buffer--match-pattern pattern function-name nil))
+                collect (format "Function:'%s'" function-name))
 
-     (cl-loop for variable-name across (cdr (assoc 'variables instance))
-              if (helm-buffer--match-pattern helm-pattern variable-name nil)
-              collect (format "Var:'%s'" variable-name)))))
+       (cl-loop for variable-name across (cdr (assoc 'variables instance))
+                if (loop for pattern in word-patterns
+                         thereis (helm-buffer--match-pattern pattern variable-name nil))
+                collect (format "Var:'%s'" variable-name))))))
 
 (defun helm-q-source-match-function (candidate)
   "Default function to match buffers.
