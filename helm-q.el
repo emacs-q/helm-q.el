@@ -375,7 +375,7 @@ Argument CANDIDATE: selected candidate."
 Argument ARG: prefix argument."
   (interactive "P")
   (let ((helm-candidate-separator " ")
-        (helm-q-bringing-q-actite-buffer-front-p t)
+        (helm-q-bringing-q-active-buffer-front-p t)
         (helm-q-pass-required-p (and arg t)))
     (helm :sources (list (helm-make-source "helm-running-q" 'helm-q-running-source)
                          (helm-make-source "helm-q" 'helm-q-source))
@@ -446,13 +446,13 @@ Argument HOST: the host of current instance."
    (volatile :initform t)
    (nohighlight :initform nil)))
 
-(defvar helm-q-bringing-q-actite-buffer-front-p nil)
+(defvar helm-q-bringing-q-active-buffer-front-p nil)
 
 (defun helm-q-running-source-action-select-an-instance (candidate)
   "Select an running instance.
 Argument CANDIDATE: the selected candidate."
   (q-activate-buffer candidate)
-  (when helm-q-bringing-q-actite-buffer-front-p
+  (when helm-q-bringing-q-active-buffer-front-p
     (pop-to-buffer q-active-buffer)))
 
 (defun helm-q-running-buffer-list ()
