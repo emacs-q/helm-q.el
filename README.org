@@ -3,6 +3,7 @@
 * Manage remote q sessions with Helm and q-mode
 
 ** Prerequisites
+- https://github.com/psaris/q-mode
 - https://code.kx.com/q/learn/install/
 - https://github.com/KxSystems/kdb/blob/master/l64/qcon
 
