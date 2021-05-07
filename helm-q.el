@@ -50,6 +50,9 @@ These fields in second item can be found in file `instances-meta.json'."
     :custom function
     :documentation
     "  A function with no arguments to create instance list.")
+   (instance-display-cache
+    :initform nil
+    :documentation "Cache-hashmap of instances by the displayed text for each one")
    (candidate-columns
     :initform '(address service env region)
     :documentation "The columns used to display each candidate.")
@@ -92,7 +95,7 @@ Argument INSTANCES: the instance list."
         (context-matched-columns (helm-q-context-matched-columns instance)))
     (propertize
      (if (null context-matched-columns)
-       (propertize first-row 'face 'bold)
+         (propertize first-row 'face 'bold)
        (concat (propertize first-row 'face 'bold) "\n"
                (s-join helm-buffers-column-separator
                        (cons helm-buffers-column-separator
@@ -103,9 +106,13 @@ Argument INSTANCES: the instance list."
   "Load source for instances.
 Argument INSTANCES: the incoming list of instance."
   (helm-q-calculate-columns-width instances)
-  ;; a list whose members are `(DISPLAY . REAL)' pairs.
-  (cl-loop for instance in instances
-           collect (cons (helm-q-instance-display-string instance) instance)))
+  (let ((cache-map (make-hash-table :test 'equal :size (length instances))))
+    (helm-attrset 'instance-display-cache cache-map)
+    ;; a list whose members are `(DISPLAY . REAL)' pairs.
+    (cl-loop for instance in instances
+             for instance-display-string = (helm-q-instance-display-string instance)
+             do (puthash instance-display-string instance cache-map)
+             collect (cons instance-display-string instance))))
 
 (defun helm-q-instance-list-from-config-directory ()
   "Load source from json files in a directory."
@@ -121,10 +128,7 @@ Argument INSTANCES: the incoming list of instance."
 (defun helm-q-get-instance-by-display (display-str)
   "Get an instance by its display string.
 Argument DISPLAY-STR: the display string."
-  (cl-loop with candidates = (helm-attr 'candidates)
-           for candidate in candidates
-           when (string= display-str (car candidate))
-           return (cdr candidate)))
+  (gethash display-str (helm-attr 'instance-display-cache)))
 
 (defun helm-q-context-matched-columns (instance)
   "Return a list of string for matched columns.
